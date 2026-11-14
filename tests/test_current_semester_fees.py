@@ -87,11 +87,12 @@ def test_fourteen_semesters_and_cumulative_progression(tmp_path):
     assert rows[-1][head.index('Cumulative CH')]=='42'
     assert rows[-1][head.index('CGPA')]=='3.50'
     current=gazette_rows(dataset,dataset.courses,{'gazette_term':'S26'})
-    assert len(current)==1 and current[0].course_code=='TEST014'
+    # v4.5.2: gazette_rows returns the full history through the term cutoff, not just the current term.
+    assert len(current)==14 and current[-1].course_code=='TEST014'
     missing=replace(dataset,courses=[c for c in dataset.courses if c.semester_number!='7'])
     from calculation_policy import CalculationReviewRequired
     with pytest.raises(CalculationReviewRequired,match='Earlier academic semesters'):
-        AcademicIndex(missing.courses).summary(current[0].registration,current[0].degree,'S26',True)
+        AcademicIndex(missing.courses).summary(current[-1].registration,current[-1].degree,'S26',True)
 
 def test_adjusted_gpa_reference_is_not_mislabeled_as_cgpa(tmp_path):
     from gazette_layout import _profile

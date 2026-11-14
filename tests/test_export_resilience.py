@@ -49,7 +49,8 @@ def test_current_gazette_not_blocked_by_later_term_error(tmp_path):
 def test_term_selection_does_not_silently_change(tmp_path):
     source=tmp_path/'source.xlsx';_df().to_excel(source,index=False);ds=load_course_workbook(source)
     ds.courses.append(replace(ds.courses[0],term='Unspecified term'))
-    assert current_term(ds,{})=='SU26'
+    # v4.5.2: Summer folds into the Spring publication cycle, so the current term is S26, not SU26.
+    assert current_term(ds,{})=='S26'
     with pytest.raises(ValueError,match='Settings'):current_term(ds,{'gazette_term':'F20'})
 
 

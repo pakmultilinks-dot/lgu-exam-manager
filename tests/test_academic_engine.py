@@ -124,7 +124,8 @@ def test_export_formats_and_no_formulas(tmp_path):
             assert "DRAFT" not in " ".join(p.text for p in doc.paragraphs)
         else:
             wb = load_workbook(destination, read_only=True)
-            assert wb.sheetnames == ["READ FIRST", "Course Results", "Calculated Totals", "Repeat Selection Audit", "Point Derivation Audit", "Applied Grade Scale"]
+            # v4.5.2: the draft Excel leads with the Gazette + Gazette Contents sheets.
+            assert wb.sheetnames == ["Gazette", "Gazette Contents", "READ FIRST", "Course Results", "Calculated Totals", "Repeat Selection Audit", "Point Derivation Audit", "Applied Grade Scale"]
             assert wb["Course Results"].max_row == 5
 
 
