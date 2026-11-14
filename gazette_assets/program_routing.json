@@ -4,8 +4,12 @@
     "BBAHONS": "BBA",
     "BBAHONOURS": "BBA",
     "BBAHONORS": "BBA",
+    "DFCS": "BSDFCS",
     "MBA2YEARS": "MBA"
   },
+  "notes": [
+    "DFCS aliases to BSDFCS (Management Science): the user's 14 Nov 2026 message lists DFCS alongside BS CS, BS IT, BS SC and BS AI, and his screenshots show the same program as BS DFCS, so bare DFCS is that program with the BS prefix dropped in the imported data. No department was guessed for BS SC (BSSC) or BS AI beyond the catalog: BS AI (BSAI) is already in the information-technology catalog, while BS SC matches no catalog entry and stays blocked until a routing entry or a department column is supplied."
+  ],
   "preferred_templates": {
     "BSIT": "information-technology"
   },

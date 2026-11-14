@@ -37,6 +37,10 @@ def _routing_rules():
 def canonical_program(degree):
     from academic_identity import program_key
     program=program_key(degree)
+    # Aliases normalize spelling variants without changing the source
+    # identity. DFCS aliases to BSDFCS: the user lists DFCS in his 14 Nov
+    # 2026 message and the same program appears as BS DFCS in his
+    # screenshots, so bare DFCS is that program with the BS prefix dropped.
     return _routing_rules()['aliases'].get(program,program)
 
 
@@ -77,6 +81,7 @@ def resolve_template_groups(choice, rows):
                 raise ValueError(f'The selected layout does not match {degree}. Choose Automatic from imported data or a matching department layout.')
         return [(choice,rows)]
     groups={}
+    unrouted={}
     for row in rows:
         program=canonical_program(row.degree)
         matches={key for key, programs in _programs().items() if program in programs}
@@ -88,9 +93,16 @@ def resolve_template_groups(choice, rows):
         preferred=_routing_rules()['preferred_templates'].get(program)
         if preferred in matches:matches={preferred}
         if len(matches)!=1:
-            raise ValueError(f'Program {row.degree!r} is not uniquely matched to a department. Choose its department layout in Settings or supply a department column.')
+            # An unroutable program blocks only itself: skip its rows so the
+            # combined gazette still exports for the programs that do route.
+            # The program stays blocked in the dropdown with this reason.
+            unrouted.setdefault(row.degree, f'Program {row.degree!r} is not uniquely matched to a department. Choose its department layout in Settings or supply a department column.')
+            continue
         key=next(iter(matches));groups.setdefault(key,[]).append(row)
-    if not groups:raise ValueError('No current-semester records selected.')
+    if not groups:
+        if unrouted:
+            raise ValueError(' '.join(unrouted.values()))
+        raise ValueError('No current-semester records selected.')
     return list(groups.items())
 
 
