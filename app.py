@@ -223,7 +223,7 @@ class App(ctk.CTk):
             while True:
                 label, done, result, error, elapsed = self._jobs.get_nowait()
                 self.job_busy = False
-                self.title(f"LGU Exam Manager - Gazette v4.5.2 - last operation {elapsed:.2f}s")
+                self.title("LGU Exam Manager - Gazette v4.5.2")
                 if error is not None:
                     from user_errors import friendly_error
                     display_error=friendly_error(error)
