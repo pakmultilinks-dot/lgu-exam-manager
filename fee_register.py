@@ -1,4 +1,4 @@
-"""Verified fee records are appended after all academic result pages."""
+"""Fee blocks close each session section, as in the official gazettes."""
 from semester_reports import roll_order
 from academic_identity import registration_key
 
@@ -43,29 +43,46 @@ def selected_defaulters(dataset,rows,publication_term=None):
             selected.append(applicable[0])
     return sorted(selected,key=lambda r:roll_order(r.registration))
 
-def write_fee_appendix(pdf,fees,dataset,rows,template_key,body_pages):
-    from gazette_layout import _profile,_cell,_header,_wrap,_with_department_header
-    # No invented defaulters or "all clear" assertion when fee data is absent.
-    example=rows[0];profile=_profile(template_key,example.admission_session,example.degree)
-    headings={item['text'].strip() for cohort,degree in {(course.admission_session,course.degree) for course in rows} for item in _profile(template_key,cohort,degree)['header'] if 'DEPARTMENT OF' in item['text']}
-    if len(headings)>1:
-        profile=_with_department_header(profile,'DEPARTMENT OF '+template_key.replace('-',' ').upper())
-    start=profile['edges'][0];end=profile['edges'][-1];width=end-start
+def _fee_chunks(pdf,fees,profile):
+    # An empty fee list still yields one chunk: the official gazettes print
+    # the title and column header with no entries and no message row.
+    from gazette_layout import _wrap
     x=profile['edges'];edges=(x[0],x[1],x[2],x[6],x[7],x[-1])
-    entries=fees or [None]
     capacity=20*profile['row_height']-50
     pages=[];chunk=[];height=0
-    for number,record in enumerate(entries,1):
-        values=(number,record.degree,record.registration,record.name,record.comment) if record else None
-        row_height=max(22,max((len(_wrap(pdf,str(value),edges[i+1]-edges[i]-4,size=8))*9.1+4 for i,value in enumerate(values or [])),default=22))
+    for number,record in enumerate(fees,1):
+        values=(number,record.degree,record.registration,record.name,record.comment)
+        row_height=max(22,max((len(_wrap(pdf,str(value),edges[i+1]-edges[i]-4,size=8))*9.1+4 for i,value in enumerate(values)),default=22))
         if row_height>capacity:raise ValueError('A fee-list entry is too long for one page. Shorten its publication comment; the full source remains in the audit.')
         if chunk and height+row_height>capacity:
             pages.append(chunk);chunk=[];height=0
         chunk.append((values,row_height));height+=row_height
     if chunk:pages.append(chunk)
+    if not pages:pages=[[]]
+    return pages
+
+def fee_page_count(pdf,fees,template_key,cohort,degree):
+    # How many pages the fee block for one (cohort, degree) section takes,
+    # without rendering it. Used to number the table of contents before the
+    # body pages are drawn.
+    from gazette_layout import _profile
+    return len(_fee_chunks(pdf,fees,_profile(template_key,cohort,degree)))
+
+def write_fee_appendix(pdf,fees,template_key,body_pages,cohort,degree,publication_term=None):
+    # Render the fee block for one (cohort, degree) section, at the end of
+    # that section's result pages. Returns the number of pages written.
+    # The header shows that section's session. Withholding is unchanged:
+    # defaulters get no result block (the caller removes them from the
+    # body rows before planning).
+    from gazette_layout import _profile,_cell,_header
+    profile=_profile(template_key,cohort,degree)
+    start=profile['edges'][0];end=profile['edges'][-1];width=end-start
+    x=profile['edges'];edges=(x[0],x[1],x[2],x[6],x[7],x[-1])
+    window=publication_term or (fees[0].term if fees else '')
+    pages=_fee_chunks(pdf,fees,profile)
     for page_number,chunk in enumerate(pages,1):
         pdf.add_page(orientation='L',format=(612,792))
-        page={'profile':profile,'group':(example.admission_session,example.degree,example.term)}
+        page={'profile':profile,'group':(cohort,degree,window)}
         _header(pdf,page,body_pages+page_number)
         y=profile['body_top']
         _cell(pdf,'FEE DEFAULTERS',start,y,width,25,size=11,style='B');y+=25
@@ -73,9 +90,7 @@ def write_fee_appendix(pdf,fees,dataset,rows,template_key,body_pages):
             _cell(pdf,label,edges[i],y,edges[i+1]-edges[i],25,size=8,style='B')
         y+=25
         for values,row_height in chunk:
-            if values is None:
-                _cell(pdf,'No fee-status data supplied for this selection' if not dataset.fee_records else 'No defaulter records supplied for this selection',start,y,width,24,size=8)
-            else:
-                for column,value in enumerate(values):
-                    _cell(pdf,str(value),edges[column],y,edges[column+1]-edges[column],row_height,size=8)
+            for column,value in enumerate(values):
+                _cell(pdf,str(value),edges[column],y,edges[column+1]-edges[column],row_height,size=8)
             y+=row_height
+    return len(pages)

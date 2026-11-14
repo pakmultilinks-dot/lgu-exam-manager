@@ -123,30 +123,75 @@ def _full_term(term):
     year=m[2] if len(m[2])==4 else '20'+m[2]
     return {'SU':'SUMMER','S':'SPRING','F':'FALL'}[m[1]]+' '+year
 
+def _plain_number(value):
+    # Printed credit hours: 11 not 11.00, 1.5 not 1.50, as in the official.
+    from decimal import Decimal,InvalidOperation
+    try:number=Decimal(str(value).strip())
+    except (InvalidOperation,AttributeError):return '-'
+    if not number.is_finite():return '-'
+    return format(number.normalize(),'f')
 
-def _plan(pdf,rows,key,require_cgpa=False):
+def _adj_values(course,section,calculations,registration,degree):
+    # Per-course Adj. GP / Adj. CH for the gazette body. Regular course:
+    # Adj. GP is the course grade points (rate x credits), Adj. CH the
+    # credits. Summer course inside a Spring block: Adj. GP 0.00, Adj. CH
+    # the credits, the pattern observed in the official PDFs (KHURAM
+    # SHAHZAD's summer-only block shows 0.00 per summer course while the
+    # totals row still sums the summer points). The deeper meaning of the
+    # 0.00 is not settled from the PDFs alone; the observed pattern is
+    # followed here and flagged in the fix report.
+    credits=_plain_number(course.credits)
+    if section=='summer':
+        return '0.00',credits
+    if calculations is not None:
+        from calculation_policy import display_ratio
+        from decimal import Decimal,InvalidOperation
+        from fractions import Fraction
+        for attempt in calculations.students.get((registration_key(registration),program_key(degree)),[]):
+            if attempt.course_code.strip().casefold()==course.course_code.strip().casefold() and attempt.term.upper()==course.term.upper():
+                try:points=Decimal(str(attempt.quality_points).strip())
+                except (InvalidOperation,AttributeError):return '-',credits
+                if not points.is_finite():return '-',credits
+                return display_ratio(Fraction(points)),credits
+    return '-',credits
+
+
+def _plan(pdf,rows,key,require_cgpa=False,publication_term=None):
+    # One result block per student: the block shows only the current
+    # semester's courses (Summer courses fold into the Spring block), with
+    # the SGPA for that semester and the CGPA from the full history. The
+    # official gazettes print each student exactly once, in their admission
+    # cohort section; the old code printed one block per semester per student.
     available=defaultdict(set)
     labels={}
     for c in rows:
         identity=(c.admission_session,program_key(c.degree))
         available[identity].add(c.term.upper())
         labels.setdefault(identity,c.degree)
+    def current_window(identity):
+        terms=available[identity]
+        if publication_term:
+            return _window(publication_term,terms)
+        return _window(max(terms,key=term_order),terms)
     students=defaultdict(list)
     registration_labels={}
     for c in rows:
         degree=program_key(c.degree)
-        window=_window(c.term,available[(c.admission_session,degree)])
+        identity=(c.admission_session,degree)
+        if _window(c.term,available[identity])!=current_window(identity):
+            continue
         student=registration_key(c.registration)
         registration_labels.setdefault((c.admission_session,degree,student),c.registration)
-        students[(c.admission_session,degree,window,student)].append(c)
+        students[(c.admission_session,degree,student)].append(c)
     pages=[];page=None;serial={}
-    for identity,attempts in sorted(students.items(),key=lambda item:(term_order(_cohort_short(item[0][0])),term_order(item[0][2]),item[0][1],item[0][3])):
-        cohort,degree_id,window,student=identity
+    for identity,attempts in sorted(students.items(),key=lambda item:(term_order(_cohort_short(item[0][0])),item[0][1],item[0][2])):
+        cohort,degree_id,student=identity
         registration=registration_labels[(cohort,degree_id,student)]
         degree=labels[(cohort,degree_id)]
         name=attempts[0].name
         serial.setdefault(student,len(serial)+1)
         profile=_profile(key,cohort,degree,require_cgpa);x=profile['edges'];row_h=profile['row_height']
+        window=current_window((cohort,degree_id))
         regular=[c for c in attempts if not c.term.upper().startswith('SU')]
         summer=[c for c in attempts if c.term.upper().startswith('SU')]
         sections=[]
@@ -154,7 +199,7 @@ def _plan(pdf,rows,key,require_cgpa=False):
             if not items:continue
             values=[]
             for c in sorted(items,key=lambda c:c.source_excel_row):
-                lines=len(_wrap(pdf,c.course_name,x[7]-x[6]-4))
+                lines=len(_wrap(pdf,c.course_name.upper(),x[7]-x[6]-4))
                 h=max(row_h,lines*8.3+3)
                 values.append((c,h,section))
             minimum=6 if regular and summer and section=='regular' else 4 if regular and summer else 10
@@ -175,24 +220,27 @@ def _plan(pdf,rows,key,require_cgpa=False):
     return pages
 
 
-def _cover(pdf,rows,key,settings=None):
+def _cover(pdf,rows,key,settings=None,publication_term=None):
     settings=settings or {}
     pdf.add_page(orientation='P',format=(612,792))
     design=_catalog()['cover_design']
     asset=Path(__file__).with_name('gazette_assets')/design['asset']
     if asset.is_file():pdf.image(str(asset),0,0,612,792)
     else:raise ValueError('Gazette cover artwork missing: '+key)
-    # Replace the sample publication badge with source term coverage.
+    # The cover names the publication semester only, as on the official
+    # gazettes ("SPRING SEMESTER 2024"). The old label mixed the full
+    # history ("REGULAR & SUMMER 2025-2026" for a Fall 2026 gazette).
     bx,by,bw,bh=design['period_box']
     pdf.set_fill_color(194,183,122);pdf.rect(bx,by,bw,bh,'F')
-    terms=sorted({c.term for c in rows},key=term_order)
-    years=sorted({term_order(t)[0] for t in terms if term_order(t)[0]!=9999})
-    year_label=str(years[0]) if len(years)==1 else f'{years[0]}-{years[-1]}' if years else ''
-    has_summer=any(t.upper().startswith('SU') for t in terms)
-    regular={t[0] for t in terms if not t.upper().startswith('SU')}
-    if has_summer and regular:
-        label=('SPRING &' if regular=={'S'} else 'FALL &' if regular=={'F'} else 'REGULAR &')+'\nSUMMER\n'+year_label
-    else:label=('SUMMER' if has_summer else 'SPRING' if regular=={'S'} else 'FALL' if regular=={'F'} else 'REGULAR')+'\n'+year_label
+    period=publication_term
+    if period is None:
+        terms=sorted({c.term for c in rows},key=term_order)
+        period=terms[-1] if terms else ''
+    full=_full_term(period) if period else ''
+    label=''
+    if full:
+        parts=full.split(' ')
+        label=f"{parts[0]}\nSEMESTER\n{parts[1]}" if len(parts)==2 else full
     label=settings.get('cover_period','').strip() or label
     pdf.set_text_color(0,0,0)
     _text(pdf,label,bx+2,by+7,bw-4,bh-19,size=20,style='B',family='Title')
@@ -215,9 +263,13 @@ def _cover(pdf,rows,key,settings=None):
 
 
 def _contents(pdf,plan):
+    # Page numbers are the body-relative numbers assigned in write_gazette
+    # (cover and contents are not counted, and interleaved fee blocks take
+    # numbers too), matching the official tables of contents.
     entries={}
-    for number,page in enumerate(plan,1):
+    for position,page in enumerate(plan,1):
         cohort,degree,window=page['group']
+        number=page.get('number',position)
         entry=entries.setdefault(cohort,{'degrees':[],'page':number})
         if degree not in entry['degrees']:entry['degrees'].append(degree)
     entries=list(entries.items())
@@ -243,8 +295,27 @@ def _header(pdf,page,number):
     profile=page['profile'];cohort,degree,window=page['group']
     pdf.set_text_color(0,0,0);pdf.set_fill_color(0,0,0)
     for x0,y0,x1,y1 in profile['header_rects']:pdf.rect(x0,y0,x1-x0,y1-y0,'F')
-    for item in profile['header']:
-        text=item['text'];family,style=_source_font(item['font']);pdf.set_font(family,style,item['size']);x,y=item['origin']
+    # Shrink same-baseline column labels that would run into the next label.
+    # The reference layouts were drawn for Calibri; the bundled DejaVu
+    # fallback is wider, so STUDENT NAME ran into SEM and printed as one
+    # joined word. Centered, rotated and session labels are left alone.
+    items=list(profile['header'])
+    sizes={}
+    for index,item in enumerate(items):
+        family,style=_source_font(item['font']);size=item['size']
+        text=item['text'];x,y=item['origin']
+        if item.get('center') or text.strip()=='GRADE' or 'SESSION' in text:
+            sizes[index]=size;continue
+        while True:
+            pdf.set_font(family,style,round(size,2))
+            following=[other for other in items if other is not item and not other.get('center') and other['text'].strip()!='GRADE' and 'SESSION' not in other['text'] and abs(other['origin'][1]-y)<3.0 and other['origin'][0]>x]
+            if not following:break
+            gap=min(other['origin'][0] for other in following)-x
+            if pdf.get_string_width(text)<=gap-1 or size<=5.0:break
+            size-=0.3
+        sizes[index]=round(size,2)
+    for index,item in enumerate(items):
+        text=item['text'];family,style=_source_font(item['font']);pdf.set_font(family,style,sizes[index]);x,y=item['origin']
         if 'SESSION' in text:
             text=f'SESSION -  {cohort}  - {{ SEMESTER -  {_full_term(window)} }}'
             x=(792-pdf.get_string_width(text))/2
@@ -272,49 +343,55 @@ def _block(pdf,sr,identity,chunk,height,part,y,profile,calculations=None):
             # set_xy treats negative x as an offset from the right margin.
             # Place the short label directly instead of a wide rotated cell.
             pdf.text(center_x-pdf.get_string_width(label)/2,center_y+2.4,label)
-    current=y;segments=[]
+    # Per-course rows, with the Adj. GP / Adj. CH columns filled as in the
+    # official gazettes (regular: grade points and credits; summer: 0.00
+    # and credits). Course names print in uppercase like the official.
+    current=y
     for c,h,section in chunk:
-        if not segments or segments[-1][0]!=section:segments.append([section,current,h])
-        else:segments[-1][2]+=h
-        values={4:c.term if c else '',5:c.course_code if c else '-',6:c.course_name if c else '-',7:c.grade if c else '-'}
-        for i,value in values.items():_cell(pdf,value,x[i],current,x[i+1]-x[i],h,size=7.32,align='L' if i==6 else 'C')
-        current+=h
-        adjustment={9,12}
-    # Reference adjustment columns have per-row lines; totals are merged per semester segment.
-    for i in range(8,len(x)-1):
-        if i in adjustment:
-            current=y
-            for c,h,section in chunk:pdf.rect(x[i],current,x[i+1]-x[i],h);current+=h
+        values={4:c.term.upper() if c else '',5:c.course_code if c else '-',6:c.course_name.upper() if c else '-',7:c.grade if c else '-'}
+        for i,value in values.items():_cell(pdf,value,x[i],current,x[i+1]-x[i],h,size=6.0 if i==4 else 7.32,align='L' if i==6 else 'C')
+        if c is not None:
+            adj_gp,adj_ch=_adj_values(c,section,calculations,registration,degree)
+            _cell(pdf,adj_gp,x[9],current,x[10]-x[9],h,size=6.5)
+            _cell(pdf,adj_ch,x[12],current,x[13]-x[12],h,size=6.5)
         else:
-            for section,start,h in segments:
-                value=''
-                courses=[c for c,_,s in chunk if s==section and c]
-                if calculations and courses:
-                    from calculation_policy import display_ratio, CalculationReviewRequired
-                    term=courses[0].term
-                    try:
-                        cumulative_column=i==10 or (len(x)==18 and i==13) or (i==15 and profile.get('last_ratio_role','cgpa')=='cgpa')
-                        summary=calculations.summary(registration,degree,term,cumulative_column)
-                        from fractions import Fraction
-                        points=display_ratio(Fraction(summary.total_grade_points)).rstrip('0').rstrip('.')
-                        credits=display_ratio(Fraction(summary.total_credit_hours)).rstrip('0').rstrip('.')
-                        vals={8:points,10:points,11:credits}
-                        if len(x)==16:vals[13]=display_ratio(summary.exact_ratio)
-                        else:
-                            vals[13]=credits
-                            vals[14]=display_ratio(summary.exact_ratio)
-                            if i==15 and profile.get('last_ratio_role','cgpa')=='cgpa':
-                                vals[15]=display_ratio(summary.exact_ratio)
-                        value=vals.get(i,'')
-                    except CalculationReviewRequired:
-                        if i in ((10,13) if len(x)==16 else (10,13,14,15)):value='\u2014'
-                if i==len(x)-2 and calculations and courses:
-                    pending=[]
-                    for cumulative,label in ((False,'GPA'),(True,'CGPA')):
-                        try:calculations.summary(registration,degree,courses[0].term,cumulative)
-                        except CalculationReviewRequired:pending.append(label+' REVIEW')
-                    value='; '.join(pending)
-                _cell(pdf,value,x[i],start,x[i+1]-x[i],h,size=6.5)
+            pdf.rect(x[9],current,x[10]-x[9],h);pdf.rect(x[12],current,x[13]-x[12],h)
+        current+=h
+    # One totals row per block, for the regular segment if present, else the
+    # summer segment. Summer courses are listed but excluded from the
+    # totals (official: HASSAN AHMED's Spring totals exclude summer).
+    totals_section='regular' if any(c and s=='regular' for c,_,s in chunk) else 'summer'
+    totals_courses=[c for c,_,s in chunk if c and s==totals_section]
+    for i in range(8,len(x)-1):
+        if i in (9,12):
+            continue
+        value=''
+        if calculations and totals_courses:
+            from calculation_policy import display_ratio,CalculationReviewRequired
+            term=totals_courses[0].term
+            try:
+                cumulative_column=i==10 or (len(x)==18 and i==13) or (i==15 and profile.get('last_ratio_role','cgpa')=='cgpa')
+                summary=calculations.summary(registration,degree,term,cumulative_column)
+                from fractions import Fraction
+                points=display_ratio(Fraction(summary.total_grade_points))
+                credits=_plain_number(summary.total_credit_hours)
+                vals={8:points,10:points,11:credits}
+                if len(x)==16:vals[13]=display_ratio(summary.exact_ratio)
+                else:
+                    vals[13]=credits
+                    vals[14]=display_ratio(summary.exact_ratio)
+                    if i==15 and profile.get('last_ratio_role','cgpa')=='cgpa':
+                        vals[15]=display_ratio(summary.exact_ratio)
+                value=vals.get(i,'')
+            except CalculationReviewRequired:
+                if i in ((10,13) if len(x)==16 else (10,13,14,15)):value='\u2014'
+        if i==len(x)-2 and calculations and totals_courses:
+            pending=[]
+            for cumulative,label in ((False,'GPA'),(True,'CGPA')):
+                try:calculations.summary(registration,degree,totals_courses[0].term,cumulative)
+                except CalculationReviewRequired:pending.append(label+' REVIEW')
+            value='; '.join(pending)
+        _cell(pdf,value,x[i],y,x[i+1]-x[i],height,size=6.5)
 
 
 def _fee_section(pdf,page,y,known=False):
@@ -331,31 +408,64 @@ def write_gazette(dataset,rows,path,template_key='computer-science',settings=Non
     pdf=FPDF(unit='pt',format=(612,792));pdf.set_auto_page_break(False);pdf.set_margins(0,0,0);_fonts(pdf);pdf.set_line_width(.5)
     from calculation_policy import AcademicIndex
     calculations=AcademicIndex(calculation_attempts(dataset))
-    from fee_register import selected_defaulters,write_fee_appendix
-    appendices=[]
-    publication_term=None
-    if settings is not None:
-        from gazette_options import current_term
-        publication_term=current_term(dataset,settings)
+    from fee_register import selected_defaulters,write_fee_appendix,fee_page_count
+    # The publication term is always known here: the selected term, or the
+    # latest cycle when none is selected. It drives the cover label, the
+    # current-semester filter and every fee-block header, so it must not
+    # stay None (an unset term left fee headers with an empty semester).
+    from gazette_options import current_term
+    try:
+        publication_term=current_term(dataset,settings or {})
+    except ValueError:
+        publication_term=None
     for key,department_rows in groups:
         fees=selected_defaulters(dataset,department_rows,publication_term)
         withheld={registration_key(r.registration) for r in fees}
         body_rows=[c for c in department_rows if registration_key(c.registration) not in withheld]
-        plan=_plan(pdf,body_rows,key,require_cgpa=settings is not None)
-        _cover(pdf,department_rows,key,settings);_contents(pdf,plan)
-        for number,page in enumerate(plan,1):
-            pdf.add_page(orientation='L',format=(612,792));pdf.set_line_width(.84)
-            _header(pdf,page,number)
-            y=page['profile']['body_top']
-            for sr,identity,chunk,height,part in page['blocks']:
-                pdf.start_section(identity[2]+(' (cont.)' if part else ''),level=0)
-                _block(pdf,sr,identity,chunk,height,part,y,page['profile'],calculations);y+=height
-        summary_pages=0
+        plan=_plan(pdf,body_rows,key,require_cgpa=settings is not None,publication_term=publication_term)
+        # Fee records grouped by (cohort, degree) section, from the rows
+        # they belong to. A section whose students are all defaulters has
+        # no body pages but still gets its fee block.
+        section_of={}
+        for c in department_rows:
+            section_of.setdefault(registration_key(c.registration),(c.admission_session,program_key(c.degree)))
+        fees_by_section=defaultdict(list)
+        for record in fees:
+            section=section_of.get(registration_key(record.registration))
+            if section is not None:
+                fees_by_section[section].append(record)
+        pages_by_section=defaultdict(list)
+        for page in plan:
+            pages_by_section[(page['group'][0],page['group'][1])].append(page)
+        sections=list(pages_by_section)
+        for section in sorted(fees_by_section):
+            if section not in sections:
+                sections.append(section)
+        _cover(pdf,department_rows,key,settings,publication_term)
+        # Number the body pages (body-relative, as in the official tables
+        # of contents) before drawing, so the contents and the headers
+        # agree; interleaved fee blocks take numbers too.
+        number=0
+        for section in sections:
+            for page in pages_by_section.get(section,[]):
+                number+=1
+                page['number']=number
+            number+=fee_page_count(pdf,fees_by_section.get(section,[]),key,section[0],section[1])
+        _contents(pdf,plan)
+        running=0
+        for section in sections:
+            for page in pages_by_section.get(section,[]):
+                pdf.add_page(orientation='L',format=(612,792));pdf.set_line_width(.84)
+                _header(pdf,page,page['number'])
+                y=page['profile']['body_top']
+                for sr,identity,chunk,height,part in page['blocks']:
+                    pdf.start_section(identity[2]+(' (cont.)' if part else ''),level=0)
+                    _block(pdf,sr,identity,chunk,height,part,y,page['profile'],calculations);y+=height
+                running+=1
+            # The fee block closes its own section, with that section's
+            # session in the header.
+            running+=write_fee_appendix(pdf,fees_by_section.get(section,[]),key,running,section[0],section[1],publication_term)
         if any(not page['profile']['cgpa'] for page in plan):
             from semester_reports import write_gazette_cgpa_summary
-            summary_pages=write_gazette_cgpa_summary(pdf,body_rows,calculations,len(plan))
-        appendices.append((fees,department_rows,key,len(plan)+summary_pages))
-    # Every academic section precedes every fee appendix in a combined gazette.
-    for fees,department_rows,key,body_pages in appendices:
-        write_fee_appendix(pdf,fees,dataset,department_rows,key,body_pages)
+            write_gazette_cgpa_summary(pdf,body_rows,calculations,running)
     pdf.output(str(path))
