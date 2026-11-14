@@ -36,7 +36,11 @@ def test_every_reference_program_grade_and_credit_combination():
         assert Fraction(summary.total_credit_hours)==credit
         assert Fraction(summary.total_grade_points)==credit*rate
         assert summary.exact_ratio==rate
-        scaled=rate.numerator*100//rate.denominator
+        # Half-up at 2 decimals, like the official gazettes (these rates are
+        # exact 2-decimal values, so truncation would agree, but the oracle
+        # must state rounding).
+        scaled,remainder=divmod(rate.numerator*100,rate.denominator)
+        if remainder*2>=rate.denominator:scaled+=1
         assert display_ratio(summary.exact_ratio)==f'{scaled//100}.{scaled%100:02}'
     assert tuple(ds.courses)==original and all(not row.quality_points for row in rows)
 
@@ -53,11 +57,16 @@ def test_seeded_repeat_and_history_oracle():
                 credits=Fraction(Decimal(CREDITS[(student+course)%len(CREDITS)]))
                 grade=rng.choice(list(RATES));rate=Fraction(Decimal(RATES[grade]))
                 row=attempt(registration=registration,degree=degree,term=term,course_code=f'COURSE{course}',credits=str(Decimal(credits.numerator)/Decimal(credits.denominator)),grade=grade)
-                rows.append(row);current.append((credits,rate))
-                if course not in chosen or rate>chosen[course][1]:chosen[course]=(credits,rate)
+                rows.append(row);current.append((credits,rate,grade))
+                if course not in chosen or rate>chosen[course][1]:chosen[course]=(credits,rate,grade)
             for cumulative,values in ((False,current),(True,list(chosen.values()))):
-                total_ch=sum(c for c,r in values);total_gp=sum(c*r for c,r in values)
-                oracles[registration,degree,term,cumulative]=(total_ch,total_gp,total_gp/total_ch)
+                total_ch=sum(c for c,r,g in values);total_gp=sum(c*r for c,r,g in values)
+                # F-graded credits stay in the printed totals but are
+                # excluded from the GPA/CGPA denominator, matching the
+                # official LGU gazettes.
+                gpa_ch=sum(c for c,r,g in values if g!='F')
+                ratio=total_gp/gpa_ch if gpa_ch else Fraction(0)
+                oracles[registration,degree,term,cumulative]=(total_ch,total_gp,ratio)
     ds=ResultDataset(rows,[],[],'fictional.xlsx');index=AcademicIndex(calculation_attempts(ds))
     for key,(ch,gp,ratio) in oracles.items():
         summary=index.summary(*key)
@@ -160,10 +169,17 @@ def test_shared_arts_fee_appendix_does_not_mislabel_urdu_as_ir(tmp_path):
     ds=ResultDataset(rows,[],[],'fictional.xlsx',fee_records=fees)
     target=tmp_path/'mixed-arts.pdf';generate_draft('pdf',ds,rows,target,'auto',settings={'gazette_term':'F25'})
     with pymupdf.open(target) as pdf:
-        text=pdf[-1].get_text()
-        assert 'DEPARTMENT OF ART AND HUMANITIES' in text
-        assert all(c.degree in text for c in rows)
-        assert 'INTERNATIONAL RELATION' not in text
+        # Each degree gets its own fee block at the end of its own section,
+        # under its own department, so neither student is labelled under
+        # the other's department.
+        fee_pages=[p.get_text() for p in pdf if 'FEE DEFAULTERS' in p.get_text()]
+        assert len(fee_pages)==2
+        ir_page=next(t for t in fee_pages if 'BS IR' in t)
+        urdu_page=next(t for t in fee_pages if 'BS Urdu' in t)
+        assert 'INTERNATIONAL RELATION' in ir_page and 'TEST/0' in ir_page
+        assert 'DEPARTMENT OF URDU' in urdu_page and 'TEST/1' in urdu_page
+        assert 'INTERNATIONAL RELATION' not in urdu_page
+        assert 'DEPARTMENT OF URDU' not in ir_page
 
 
 def test_every_measured_body_profile_contains_the_reference_university_heading():

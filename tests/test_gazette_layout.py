@@ -42,11 +42,15 @@ def test_exam_windows_do_not_mix_all_history(tmp_path):
     generate_draft('pdf',ds,ds.courses,str(out))
     with fitz.open(out) as pdf:
         body=[p.get_text() for p in list(pdf)[2:]]
-        assert any('SEMESTER -  FALL 2025' in t for t in body)
-        assert any('SEMESTER -  SPRING 2026' in t for t in body)
+        # One block per student, current semester only: no FALL 2025
+        # result section, and the F25 course never appears on a Spring
+        # 2026 page.
+        assert all('SEMESTER -  SPRING 2026' in t for t in body)
         assert all('F25' not in t for t in body if 'SEMESTER -  SPRING 2026' in t)
         assert any('CGPA' in t for t in body)
-        assert sum(t.count('CS100') for t in body)==2
+        # ALPHA shows CS101 twice (S26 + SU26); CS100 (F25) not at all.
+        # BETA shows CS100 once (S26).
+        assert sum(t.count('CS100') for t in body)==1
         assert sum(t.count('CS101') for t in body)==2
 
 
@@ -67,5 +71,11 @@ def test_automatic_combined_programs_and_aliases(tmp_path):
         texts=[page.get_text() for page in pdf]
         fees=[i for i,text in enumerate(texts) if 'FEE DEFAULTERS' in text]
         assert len(fees)==4
-        assert fees==list(range(len(texts)-4,len(texts)))
-        assert all(any(degree in text for text in texts[:fees[0]]) for degree in ('BSCS','BS IT','BS SE','BBA (Hons)'))
+        # One fee block per department group, closing that group's own
+        # pages (not a single appendix after all groups), so the fee
+        # pages are spread through the document and the last one is the
+        # document's last page.
+        assert fees[-1]==len(texts)-1
+        assert fees!=list(range(len(texts)-4,len(texts)))
+        for degree,fee_page in zip(('BSCS','BS IT','BS SE','BBA (Hons)'),fees):
+            assert any(degree in text for text in texts[:fee_page])

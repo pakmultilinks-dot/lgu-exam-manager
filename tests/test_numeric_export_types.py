@@ -10,6 +10,7 @@ def test_subject_counts_and_validation_rows_remain_excel_numbers(tmp_path):
     book=load_workbook(target,read_only=True,data_only=True)
     cell=book.active['K4']
     assert cell.value==2 and cell.data_type=='n'
-    # GPA strings intentionally retain two displayed decimals and exact truncation.
-    assert book.active['H4'].value=='2.82'
+    # GPA strings intentionally retain two displayed decimals, rounded half-up
+    # like the official gazettes (2.825 rounds to 2.83, not truncated to 2.82).
+    assert book.active['H4'].value=='2.83'
     book.close()

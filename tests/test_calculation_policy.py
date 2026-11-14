@@ -4,11 +4,14 @@ from fractions import Fraction
 import pytest
 from calculation_policy import ApprovedPolicy, calculate_academic_values, CalculationReviewRequired
 
-def test_two_places_without_any_rounding():
+def test_two_places_round_half_up():
+    # Official LGU gazettes round GPAs half-up at 2 decimals (all 2,923
+    # totals rows in the three sample PDFs match rounding, none match
+    # truncation), so display_ratio rounds instead of truncating.
     from calculation_policy import display_ratio
     with localcontext() as context:
         context.prec=2
-        for raw, expected in [('1.8875','1.88'),('1.6000','1.60'),('1.999999999999999999999999999999999','1.99'),('0','0.00'),('4','4.00')]:
+        for raw, expected in [('1.8875','1.89'),('1.6000','1.60'),('1.999999999999999999999999999999999','2.00'),('0','0.00'),('4','4.00')]:
             assert display_ratio(Fraction(Decimal(raw))) == expected
         assert display_ratio(Fraction(1,3))=='0.33'
 

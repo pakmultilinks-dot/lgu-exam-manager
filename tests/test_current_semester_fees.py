@@ -102,6 +102,8 @@ def test_adjusted_gpa_reference_is_not_mislabeled_as_cgpa(tmp_path):
     dataset=load_course_workbook(source);output=tmp_path/'criminology.pdf'
     generate_draft('pdf',dataset,dataset.courses,str(output),template_key='criminology',settings={'gazette_term':'S26'})
     with pymupdf.open(output) as document:
-        assert 'GPA / CGPA SUMMARY' in document[-2].get_text()
-        assert '3.00' in document[-2].get_text()
-        assert 'FEE DEFAULTERS' in document[-1].get_text()
+        # The fee block closes its own section; the GPA / CGPA summary
+        # pages come after all body and fee pages, so they are last.
+        assert 'GPA / CGPA SUMMARY' in document[-1].get_text()
+        assert '3.00' in document[-1].get_text()
+        assert 'FEE DEFAULTERS' in document[-2].get_text()
