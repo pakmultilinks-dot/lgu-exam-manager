@@ -375,7 +375,7 @@ def write_draft_excel(dataset: ResultDataset, courses: list[CourseAttempt], path
         ("Course attempts", len(courses)),
         ("Formula", "Total source grade points / total credit hours; highest points per credit repeat once"),
         ("Scope", "SGPA per term; CGPA imported history through term, including history outside display filter"),
-        ("Display", "Two decimals, truncated without rounding; exact numerator / denominator retained in calculation audit"),
+        ("Display", "Two decimals, rounded half-up; exact numerator / denominator retained in calculation audit"),
         ("Academic standing", "NOT DETERMINED"),
         ("Grade scale source", dataset.grade_scale_reference),
     ]

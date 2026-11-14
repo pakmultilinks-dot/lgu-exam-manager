@@ -95,7 +95,7 @@ def capability(key, ds, rows):
     errors=relevant_errors(ds,rows,history=key in ('register','cgpa_list'),all_terms=key=='cgpa_list')
     if errors:
         return False, _publication_block_reason(ds,rows,errors)
-    if key=='register':return True, 'Ready to export. GPA uses 2 decimals without rounding; exact values remain in the Excel audit.'
+    if key=='register':return True, 'Ready to export. GPA uses 2 decimals, rounded half-up; exact values remain in the Excel audit.'
     return True, 'Ready to export selected source records.'
 
 def table_data(key, ds, rows):
@@ -178,7 +178,7 @@ def _write_report(key, fmt, ds, rows, path, template_key="computer-science",sett
     head,data=table_data(key,ds,rows)
     title='DRAFT - '+ROUTES[key]
     note=f'{len(rows)} selected course attempts; {student_count(rows)} distinct students. No academic calculations or official approval.'
-    if key=='cgpa_list':note='Per-semester GPA and cumulative CGPA through each term. Best repeat counted once. Two decimals, truncated; full history retained.'
+    if key=='cgpa_list':note='Per-semester GPA and cumulative CGPA through each term. Best repeat counted once. Two decimals, rounded half-up; full history retained.'
     if key=='cgpa_list' and ds.grade_scale:note+=' Applied scale: '+ds.grade_scale_reference
     if fmt=='excel':
         from openpyxl import Workbook

@@ -68,7 +68,7 @@ class GazetteSettingsPanel(ctk.CTkScrollableFrame):
         self.coverage_label=ctk.CTkLabel(self,text='',wraplength=800,justify='left')
         self.coverage_label.pack(anchor='w',padx=24,pady=8)
         ctk.CTkButton(self,text='Import fee-defaulter workbook',command=self.import_fees).pack(anchor='w',padx=24,pady=6)
-        ctk.CTkLabel(self,text='GPA display: 2 decimal places, truncated without rounding.\nCalculations keep their full precision; Excel retains exact totals and repeat selection.\nGazette pages follow the selected department and publication cycle.',wraplength=850,justify='left').pack(anchor='w',padx=24,pady=18)
+        ctk.CTkLabel(self,text='GPA display: 2 decimal places, rounded half-up.\nCalculations keep their full precision; Excel retains exact totals and repeat selection.\nGazette pages follow the selected department and publication cycle.',wraplength=850,justify='left').pack(anchor='w',padx=24,pady=18)
         ctk.CTkButton(self,text='Open gazette reports',command=lambda:app.show_frame('reports')).pack(anchor='w',padx=24,pady=20)
     def select_term(self,value):
         ds=self.app.academic_dataset

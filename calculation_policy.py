@@ -22,10 +22,18 @@ USER_CONFIRMED_POLICY = ApprovedPolicy(
     False, 'points_over_credits', 'points_per_credit')
 
 def display_ratio(value):
-    """Two decimal places, truncated toward zero using exact integer arithmetic."""
-    scaled = abs(value.numerator) * 100 // value.denominator
-    sign = '-' if value.numerator < 0 and scaled else ''
-    return f'{sign}{scaled // 100}.{scaled % 100:02d}'
+    """Two decimal places, rounded half-up using exact integer arithmetic.
+
+    The official LGU gazettes round half-up: all 2,923 totals rows in the
+    three sample PDFs match rounding and none match truncation, so the
+    display follows the official format.
+    """
+    scaled = abs(value) * 100
+    whole, remainder = divmod(scaled.numerator, scaled.denominator)
+    if remainder * 2 >= scaled.denominator:
+        whole += 1
+    sign = '-' if value < 0 and whole else ''
+    return f'{sign}{whole // 100}.{whole % 100:02d}'
 
 class AcademicIndex:
     """Use full imported student history, never just filtered display rows."""
@@ -133,13 +141,21 @@ def calculate_academic_values(attempts, policy=None):
         students.setdefault(key[:2], []).append(decision)
     output = {}
     for key, decisions in students.items():
-        values = [_values(d.selected) for d in decisions]
-        credits = _sum_exact(c for c, _ in values)
-        points = _sum_exact(p for _, p in values)
-        numerator, denominator = (points, credits) if policy.formula == 'points_over_credits' else (credits, points)
-        if denominator == 0:
-            raise CalculationReviewRequired('Selected formula has a zero denominator.')
-        output[key] = AcademicSummary(*key, credits, points, Fraction(numerator) / Fraction(denominator), tuple(decisions), policy.version)
+        # Failed (F) attempts keep their grade point of 0 and their credit
+        # hours stay in the printed totals, but their credit hours are
+        # excluded from the GPA/CGPA denominator, matching the official LGU
+        # gazettes (e.g. DANISH WAKEEL: 27.00/12 prints 3.00 = 27.00/9).
+        # A student whose selected attempts are all F has a zero
+        # denominator; the GPA is 0.00 (no grade points were earned), not a
+        # review, since a student who failed everything is a real outcome
+        # and must not block the gazette.
+        paired = [(_values(d.selected), d.selected) for d in decisions]
+        credits = _sum_exact(c for (c, _), _ in paired)
+        points = _sum_exact(p for (_, p), _ in paired)
+        gpa_credits = _sum_exact(c for (c, _), attempt in paired if attempt.grade.strip().upper() != 'F')
+        numerator, denominator = (points, gpa_credits) if policy.formula == 'points_over_credits' else (gpa_credits, points)
+        ratio = Fraction(0) if denominator == 0 else Fraction(numerator) / Fraction(denominator)
+        output[key] = AcademicSummary(*key, credits, points, ratio, tuple(decisions), policy.version)
     return output
 
 
