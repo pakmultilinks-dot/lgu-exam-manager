@@ -21,23 +21,20 @@ def term_order(value):
 
 
 def _fonts(pdf):
-    from pdf_fonts import add_fonts
+    from pdf_fonts import add_fonts, add_font_family
     add_fonts(pdf)
     root=Path('C:/Windows/Fonts')
     if (root/'calibri.ttf').is_file():
         for style,file in [('', 'calibri.ttf'),('B','calibrib.ttf'),('I','calibrii.ttf')]:pdf.add_font('Body',style,str(root/file))
     else:
-        import matplotlib
-        root=Path(matplotlib.get_data_path())/'fonts'/'ttf'
-        for style,file in [('', 'DejaVuSans.ttf'),('B','DejaVuSans-Bold.ttf'),('I','DejaVuSans-Oblique.ttf')]:pdf.add_font('Body',style,str(root/file))
+        # Bundled DejaVu fonts (gazette_assets/fonts); matplotlib is only a fallback.
+        add_font_family(pdf, 'Body', {'': 'DejaVuSans.ttf', 'B': 'DejaVuSans-Bold.ttf', 'I': 'DejaVuSans-Oblique.ttf'})
     root=Path('C:/Windows/Fonts')
     if (root/'cambria.ttc').is_file():
         pdf.add_font('Title','',str(root/'cambria.ttc'))
         for style,file in [('B','cambriab.ttf'),('I','cambriai.ttf'),('BI','cambriaz.ttf')]:pdf.add_font('Title',style,str(root/file))
     else:
-        import matplotlib
-        font_root=Path(matplotlib.get_data_path())/'fonts/ttf'
-        for style,file in [('', 'DejaVuSerif.ttf'),('B','DejaVuSerif-Bold.ttf'),('I','DejaVuSerif-Italic.ttf'),('BI','DejaVuSerif-BoldItalic.ttf')]:pdf.add_font('Title',style,str(font_root/file))
+        add_font_family(pdf, 'Title', {'': 'DejaVuSerif.ttf', 'B': 'DejaVuSerif-Bold.ttf', 'I': 'DejaVuSerif-Italic.ttf', 'BI': 'DejaVuSerif-BoldItalic.ttf'})
 
 
 def _wrap(pdf,text,width,size=7.3,family='Body',style=''):
@@ -189,7 +186,6 @@ def _cover(pdf,rows,key,settings=None):
     bx,by,bw,bh=design['period_box']
     pdf.set_fill_color(194,183,122);pdf.rect(bx,by,bw,bh,'F')
     terms=sorted({c.term for c in rows},key=term_order)
-    first,last=term_order(terms[0]),term_order(terms[-1])
     years=sorted({term_order(t)[0] for t in terms if term_order(t)[0]!=9999})
     year_label=str(years[0]) if len(years)==1 else f'{years[0]}-{years[-1]}' if years else ''
     has_summer=any(t.upper().startswith('SU') for t in terms)
@@ -283,8 +279,8 @@ def _block(pdf,sr,identity,chunk,height,part,y,profile,calculations=None):
         values={4:c.term if c else '',5:c.course_code if c else '-',6:c.course_name if c else '-',7:c.grade if c else '-'}
         for i,value in values.items():_cell(pdf,value,x[i],current,x[i+1]-x[i],h,size=7.32,align='L' if i==6 else 'C')
         current+=h
+        adjustment={9,12}
     # Reference adjustment columns have per-row lines; totals are merged per semester segment.
-    adjustment={9,12} if len(x)==16 else {9,12}
     for i in range(8,len(x)-1):
         if i in adjustment:
             current=y
@@ -337,8 +333,12 @@ def write_gazette(dataset,rows,path,template_key='computer-science',settings=Non
     calculations=AcademicIndex(calculation_attempts(dataset))
     from fee_register import selected_defaulters,write_fee_appendix
     appendices=[]
+    publication_term=None
+    if settings is not None:
+        from gazette_options import current_term
+        publication_term=current_term(dataset,settings)
     for key,department_rows in groups:
-        fees=selected_defaulters(dataset,department_rows)
+        fees=selected_defaulters(dataset,department_rows,publication_term)
         withheld={registration_key(r.registration) for r in fees}
         body_rows=[c for c in department_rows if registration_key(c.registration) not in withheld]
         plan=_plan(pdf,body_rows,key,require_cgpa=settings is not None)
