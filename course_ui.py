@@ -264,6 +264,13 @@ class CourseReportPanel(ctk.CTkFrame):
     def selected_key(self):
         label=self.route_menu.get()
         return next(key for key,value in ROUTES.items() if value==label)
+    def _ready_program_keys(self):
+        """Program keys that are export-ready in the current cycle, or None if not computed yet."""
+        ready=getattr(self,'_ready_programs',None)
+        if ready is None:
+            return None
+        return {program_key(name) for name in ready}
+
     def rows(self):
         if self.selected_key()=='register' and self.app.academic_dataset is not None:
             rows=list(self.app.academic_dataset.courses)
@@ -273,6 +280,12 @@ class CourseReportPanel(ctk.CTkFrame):
         if program not in ('All programs','All programs / degrees'):
             rows=[course for course in rows
                   if program_key(course.degree)==program_key(program)]
+        elif self.selected_key()=='register' and self.app.academic_dataset is not None:
+            # "All programs" exports only the programs that are ready; blocked
+            # programs are never exported and never block the rest.
+            ready=self._ready_program_keys()
+            if ready is not None:
+                rows=[course for course in rows if program_key(course.degree) in ready]
         if self.selected_key()=='register' and self.app.academic_dataset is not None:
             return gazette_rows(self.app.academic_dataset,rows,self.app.report_settings)
         return rows
@@ -291,6 +304,9 @@ class CourseReportPanel(ctk.CTkFrame):
             try:
                 if self.selected_key()=='register':
                     statuses=gazette_program_statuses(ds,self.app.report_settings)
+                    self._ready_programs=[
+                        name for name,(ready,_,_) in statuses.items() if ready
+                    ]
                     self._blocked_programs={
                         name:reason for name,(ready,reason,_) in statuses.items()
                         if not ready
@@ -300,15 +316,18 @@ class CourseReportPanel(ctk.CTkFrame):
                         for name,(ready,reason,program_rows) in statuses.items()
                         if not ready
                     }
-                    values=(['All programs / degrees'] if not self._blocked_programs else [])
-                    values+=list(statuses)
+                    # Only export-ready programs appear in the list; blocked
+                    # programs stay hidden and never block an "All" export.
+                    values=['All programs / degrees']+self._ready_programs
                     if not statuses:values=['No programs in this publication cycle']
                 else:
+                    self._ready_programs=None
                     self._blocked_programs={}
                     self._blocked_program_statuses={}
                     values=['All programs / degrees']+available_programs(
                         ds,self.app.report_settings)
             except ValueError:
+                self._ready_programs=None
                 self._blocked_programs={}
                 self._blocked_program_statuses={}
                 values=['All programs / degrees']
@@ -324,9 +343,10 @@ class CourseReportPanel(ctk.CTkFrame):
             if blocked:
                 self.blocked_info.configure(
                     text=f'{len(statuses)} program(s) detected in this publication cycle. '
-                         f'{len(blocked)} need source-data or routing review: '
-                         f'{", ".join(blocked)}. They remain selectable; select one and choose Review data '
-                         'to see the exact workbook rows. Exports stay disabled until resolved.'
+                         f'{len(self._ready_programs or [])} ready to export; '
+                         f'{len(blocked)} {"needs" if len(blocked)==1 else "need"} source-data or routing review: '
+                         f'{", ".join(blocked)}. Blocked programs are hidden from this list; '
+                         'choose Review blocked programs to see the exact workbook rows.'
                 )
                 self.blocked_info.pack(anchor='w',padx=20,pady=(2,6),before=self.reason)
                 self.review_blocked_button.configure(
@@ -362,11 +382,13 @@ class CourseReportPanel(ctk.CTkFrame):
                 cycle_terms={term.upper()}
                 if term.upper().startswith('S') and not term.upper().startswith('SU'):
                     cycle_terms.add('SU'+term.upper()[1:])
+                ready_keys=self._ready_program_keys()
+                all_programs=self.program_menu.get() in ('All programs','All programs / degrees')
                 cycle_rows=[
                     course for course in ds.courses
                     if course.term.upper() in cycle_terms
                     and (
-                        self.program_menu.get() in ('All programs','All programs / degrees')
+                        (all_programs and (ready_keys is None or program_key(course.degree) in ready_keys))
                         or program_key(course.degree)==program_key(self.program_menu.get())
                     )
                 ]
@@ -403,8 +425,8 @@ class CourseReportPanel(ctk.CTkFrame):
             from grading_profiles import scale_coverage
             from course_reports import expanded_history
             coverage=scale_coverage(ds,expanded_history(ds,rows))
-            coverage_text=(f"Grade points: {coverage['source']} supplied in the workbook; "
-                           f"{coverage['derived']-coverage['source_rate']} use the configured LGU grade scale.")
+            coverage_text=(f"Grade points: {coverage['source']} from the workbook; "
+                           f"{coverage['derived']-coverage['source_rate']} from the LGU grade scale.")
             if coverage['unmapped']:
                 coverage_text+=' Unmapped grades need review: '+', '.join(sorted(coverage['unmapped']))+'.'
             self.details.configure(text=coverage_text+' CGPA uses imported history through the selected term.')
@@ -415,7 +437,7 @@ class CourseReportPanel(ctk.CTkFrame):
                 self.details.configure(text=self.details.cget('text')+f' {len(reviews)} GPA/CGPA results need review; use Review data for affected rows.')
         self.reason.configure(text=reason)
         if not (ok and self.selected_key() in ('register','cgpa_list')):
-            self.details.configure(text='Excel keeps exact totals and repeat-selection audit.')
+            self.details.configure(text='')
         for b in self.format_buttons+[self.preview_button]:b.configure(state='normal' if ok else 'disabled')
     def export(self,key,fmt):
         if not operation_available(self.app):return
@@ -460,6 +482,10 @@ class CourseReportPanel(ctk.CTkFrame):
         if program not in ('All programs','All programs / degrees'):
             rows=[course for course in rows
                   if program_key(course.degree)==program_key(program)]
+        else:
+            ready=self._ready_program_keys()
+            if ready is not None:
+                rows=[course for course in rows if program_key(course.degree) in ready]
         folder=Path(base)/(time.strftime('LGU_DEPARTMENT_GAZETTES_%Y%m%d_%H%M%S'))
         settings=dict(self.app.report_settings)
         self.status.configure(text='Generating department gazettes in background...')
@@ -493,6 +519,10 @@ class CourseReportPanel(ctk.CTkFrame):
             for key in ROUTES:
                 rows=history_rows if key in ('register','cgpa_list') else filtered_rows
                 if key=='register':
+                    if program in ('All programs','All programs / degrees'):
+                        ready=self._ready_program_keys()
+                        if ready is not None:
+                            rows=[course for course in rows if program_key(course.degree) in ready]
                     try:rows=gazette_rows(ds,rows,settings)
                     except ValueError as exc:
                         skipped_n+=1;log.append(f'SKIPPED {key}: {exc}');continue
