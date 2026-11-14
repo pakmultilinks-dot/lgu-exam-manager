@@ -1,0 +1,60 @@
+{
+  "description": "Editable program spelling aliases and preferred reference departments. Academic source identities remain unchanged.",
+  "aliases": {
+    "BBAHONS": "BBA",
+    "BBAHONOURS": "BBA",
+    "BBAHONORS": "BBA",
+    "MBA2YEARS": "MBA"
+  },
+  "preferred_templates": {
+    "BSIT": "information-technology"
+  },
+  "program_templates": {
+    "BSBCH": "allied-health-biology",
+    "BSZOO": "allied-health-biology",
+    "CERUF": "art-and-humanities",
+    "MPHILURDU": "art-and-humanities",
+    "MSBA": "management-science"
+  },
+  "sources": [
+    {
+      "programs": [
+        "BSBCH",
+        "BSZOO",
+        "MSBA"
+      ],
+      "url": "https://lgu.edu.pk/wp-content/uploads/2021/07/FACULTY-EMPLOYEE-HAND-BOOK.pdf",
+      "note": "Biology includes Biochemistry and Zoology; Management Sciences includes MS Business Administration."
+    },
+    {
+      "programs": [
+        "CERUF",
+        "MPHILURDU"
+      ],
+      "url": "https://lgu.edu.pk/department-of-urdu-programs/",
+      "note": "Urdu programs use the supplied Arts and Humanities departmental layout; the original degree label is retained."
+    },
+    {
+      "programs": [
+        "CERUF"
+      ],
+      "url": "https://lgu.edu.pk/certificate-in-urdu-for-foreign-studentsceruf/",
+      "note": "Confirms CERUF is the Urdu certificate; no academic totals are imported from this website."
+    },
+    {
+      "programs": [
+        "MBA2YEARS"
+      ],
+      "url": "https://lgu.edu.pk/program-fee-structure/",
+      "note": "Confirms MBA (2 Years) naming. No fee values are imported."
+    }
+  ],
+  "department_headers": {
+    "art-and-humanities": {
+      "BSURDU": "DEPARTMENT OF URDU",
+      "PHDURDU": "DEPARTMENT OF URDU",
+      "MPHILURDU": "DEPARTMENT OF URDU",
+      "CERUF": "DEPARTMENT OF URDU"
+    }
+  }
+}

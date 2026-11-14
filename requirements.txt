@@ -1,0 +1,10 @@
+# Desktop app. Python 3.10 or newer.
+customtkinter>=5.2,<6
+fpdf2>=2.8.9,<3
+openpyxl>=3.1,<4
+pandas>=2.2,<3
+python-docx>=1.1,<2
+matplotlib>=3.6,<4
+Pillow>=10,<13
+
+python-calamine>=0.3,<1

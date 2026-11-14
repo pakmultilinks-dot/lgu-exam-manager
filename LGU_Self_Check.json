@@ -1,0 +1,25 @@
+{
+  "status": "PASS",
+  "build": "4.3",
+  "checks": [
+    "background Excel import and supplied grade scale",
+    "successful import persists the active workspace automatically",
+    "all navigation sections",
+    "repeat selection; GPA 3.50; CGPA 3.00; raw cells unchanged",
+    "PDF, Word and Excel export commands and file readback",
+    "PDF preview generation and viewer dispatch",
+    "automatic mixed-program routing and PDF, Word, Excel export",
+    "six historical degree routes; source degree labels retained",
+    "program-specific Urdu headings and reference university heading",
+    "all 33 report dispatcher outputs",
+    "background batch export; zero failures",
+    "dataset-only session save, reload and resave",
+    "unrecognized workbook opens mapping; cancelling preserves active data",
+    "desktop wide-course mapping; original row audit; unseen program uses supplied department",
+    "remembered structures exclude entered programs, terms, credits and course metadata",
+    "packaged XLS reader and explicit source points per credit",
+    "Clear current data empties records without deleting the saved workspace",
+    "Open saved workspace requires explicit action and restores the saved records",
+    "normal startup remains empty with an existing saved workspace"
+  ]
+}

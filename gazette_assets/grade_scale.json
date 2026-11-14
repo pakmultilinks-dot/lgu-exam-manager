@@ -1,0 +1,21 @@
+{
+  "id": "lgu-user-supplied-2026-10-23",
+  "reference": "LGU grade-point table and user-confirmed F=0, 23 October 2026",
+  "rates": {
+    "F": "0.00",
+    "D": "1.00",
+    "C-": "1.70",
+    "C": "2.00",
+    "C+": "2.30",
+    "B-": "2.70",
+    "B": "3.00",
+    "B+": "3.30",
+    "A-": "3.70",
+    "A": "4.00"
+  },
+  "notes": "User confirmed F = 0 on 23 October 2026. Other missing/non-final grade rules are not inferred. Supplied numeric source GP values take priority.",
+  "unresolved_grades": [],
+  "previous_references": [
+    "LGU grade-point table supplied by user, 23 October 2026"
+  ]
+}
