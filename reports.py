@@ -2,6 +2,7 @@
 
 Every report type is available in all three formats with LGU branding.
 """
+import inspect
 import os
 from fpdf import FPDF
 import pandas as pd
@@ -1032,21 +1033,26 @@ def _notice_data(df: pd.DataFrame):
 # final report implementations, so every key binds the finished version.)
 
 
-def _orig_generate(key, fmt, df, mapping, path, roll_filter=None):
+def generate(key, fmt, df, mapping, path, roll_filter=None):
+    """Dispatch a report by inspecting the handler's own signature.
+
+    Handlers use one of three shapes: ``(df, path)``,
+    ``(df, mapping, path)`` or ``(df, mapping, path, roll_filter=None)``.
+    Routing from the signature keeps every registered report correct
+    without maintaining a key list per registration batch.
+    """
     _set_active_dept(df)
-    label, handlers, _req = REPORTS[key]
+    _label, handlers, _req = REPORTS[key]
     fn = handlers[fmt]
-    if key in ("gazette", "subjects",
-               "stats_breakdown", "subject_toppers"):
-        fn(df, mapping, path)
-    elif key in ("cards", "transcript"):
+    params = inspect.signature(fn).parameters
+    if 'roll_filter' in params:
         fn(df, mapping, path, roll_filter=roll_filter)
-    else:
-        fn(df, path)
-
-
-# Patch generate to route new reports correctly
-generate = _orig_generate
+        return None
+    if 'mapping' in params:
+        fn(df, mapping, path)
+        return None
+    fn(df, path)
+    return None
 
 
 # ---------------------------------------------------------------------------
