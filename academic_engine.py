@@ -326,21 +326,6 @@ def load_course_workbook(path: str | Path, *, selected_sheet: str | None = None,
                     # Real sheets may have 100s of formatting-only or dash rows.
                     skipped_placeholder_rows += 1
                     continue
-                has_student_identity=not _empty(reg) and not _empty(name)
-                has_course_identifier=not _empty(course_code) or not _empty(course_name)
-                has_attempt_value=any(
-                    not _empty(get(role))
-                    for role in ("marks","quality_points")
-                ) or not _empty(credits)
-                if (
-                    not has_course_identifier
-                    and not has_attempt_value
-                    and (not has_student_identity or _empty(get("grade")))
-                ):
-                    # Ignore orphan grade cells and identity-only spacer rows,
-                    # but retain incomplete rows that contain an actual result.
-                    skipped_placeholder_rows += 1
-                    continue
                 if any(_empty(x) for x in (reg, name, course_code, course_name)):
                     issues.append(DataIssue("ERROR", layout.sheet, excel_row,
                                             "MISSING_REQUIRED", "Course row is missing a valid registration, student name, course code or course name."))

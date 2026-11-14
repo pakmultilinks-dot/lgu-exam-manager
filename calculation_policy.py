@@ -16,16 +16,6 @@ class ApprovedPolicy:
 class PolicyRequiredError(ValueError): pass
 class CalculationReviewRequired(ValueError): pass
 
-_NON_GPA_GRADES = frozenset(('W', 'I', 'IP', 'P', 'PASS', 'R', ''))
-
-def is_status_only_non_gpa(attempt):
-    """A recognized non-final status with no source credits or points is not GPA-bearing."""
-    return (
-        attempt.grade.strip().upper() in _NON_GPA_GRADES
-        and not attempt.credits.strip()
-        and not attempt.quality_points.strip()
-    )
-
 USER_CONFIRMED_POLICY = ApprovedPolicy(
     'LGU-user-2026-10-22-v1',
     'User confirmed points / credits and highest points per credit repeat selection, 2026-10-22',
@@ -89,7 +79,7 @@ class AcademicSummary:
     policy_version: str
 
 def _values(attempt):
-    if attempt.grade.strip().upper() in _NON_GPA_GRADES:
+    if attempt.grade.strip().upper() in ('W', 'I', 'IP', 'P', 'PASS', 'R', ''):
         raise CalculationReviewRequired('Non-GPA or incomplete grade requires an explicit inclusion rule.')
     try:
         credits, points = (Decimal(str(v).strip()) for v in (attempt.credits, attempt.quality_points))
@@ -120,8 +110,6 @@ def calculate_academic_values(attempts, policy=None):
         raise PolicyRequiredError('A unique ascending approved grade scale is required.')
     groups = {}
     for attempt in attempts:
-        if is_status_only_non_gpa(attempt):
-            continue
         if not attempt.registration.strip() or not attempt.course_code.strip():
             raise CalculationReviewRequired('Registration and course code are required.')
         key = (registration_key(attempt.registration), program_key(attempt.degree), attempt.course_code.strip().casefold())

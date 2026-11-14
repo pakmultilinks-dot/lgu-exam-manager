@@ -2,17 +2,45 @@
 from semester_reports import roll_order
 from academic_identity import registration_key
 
-def selected_defaulters(dataset,rows):
-    registrations={registration_key(c.registration) for c in rows};terms={c.term for c in rows}
-    grouped={}
+def selected_defaulters(dataset,rows,publication_term=None):
+    # v4.5.2: the v4.3 copy took only (dataset, rows) and crashed the Excel/Word
+    # register export, which passes the publication term. A fee record counts
+    # only if its term is in the publication cycle (Spring includes same-year
+    # Summer); when the cycle has no fee record, a term-less record applies.
+    from gazette_layout import term_order
+    registrations={registration_key(c.registration) for c in rows}
+    available_terms={c.term for c in rows}
+    if publication_term is None:
+        publication_term=max(available_terms,key=term_order) if available_terms else None
+    cycle_terms=set()
+    if publication_term:
+        cycle_terms.add(publication_term)
+        upper=publication_term.upper()
+        if upper.startswith('S') and not upper.startswith('SU'):
+            paired='SU'+upper[1:]
+            if paired in available_terms:
+                cycle_terms.add(paired)
+        elif upper.startswith('SU'):
+            paired='S'+upper[2:]
+            if paired in available_terms:
+                cycle_terms.add(paired)
+    by_registration={}
     for record in dataset.fee_records:
-        if registration_key(record.registration) in registrations and (not record.term or record.term in terms):
-            grouped.setdefault(registration_key(record.registration),[]).append(record)
+        registration=registration_key(record.registration)
+        if registration in registrations:
+            by_registration.setdefault(registration,[]).append(record)
     selected=[]
-    for registration,records in grouped.items():
-        if len({r.status for r in records})!=1:
+    for registration,records in by_registration.items():
+        cycle_records=[record for record in records if record.term in cycle_terms]
+        if cycle_records:
+            latest=max((record.term for record in cycle_records),key=term_order)
+            applicable=[record for record in cycle_records if record.term==latest]
+        else:
+            applicable=[record for record in records if not record.term]
+        if len({record.status for record in applicable})>1:
             raise ValueError('Conflicting fee statuses for a selected registration; reconcile source fee records before export.')
-        if records[0].status=='DEFAULTER':selected.append(records[0])
+        if applicable and applicable[0].status=='DEFAULTER':
+            selected.append(applicable[0])
     return sorted(selected,key=lambda r:roll_order(r.registration))
 
 def write_fee_appendix(pdf,fees,dataset,rows,template_key,body_pages):

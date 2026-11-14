@@ -22,26 +22,51 @@ def issue_source(dataset, issue):
 
 
 def relevant_errors(dataset, rows, *, history=True, all_terms=False):
+    """Return errors linked to selected registrations or identifiable programs.
+
+    Incomplete source rows may have no registration number; when their mapped
+    program is available, scope them to that program. Unidentifiable errors fail
+    closed instead of silently allowing an export.
+    """
     from gazette_layout import term_order
     from academic_engine import derive_term
+    from academic_engine import registration_program
     selected={}
+    selected_by_program={}
     for course in rows:
-        selected.setdefault((registration_key(course.registration),program_key(course.degree)),set()).add(course.term)
+        registration=registration_key(course.registration)
+        degree=program_key(course.degree)
+        selected.setdefault((registration,degree),set()).add(course.term)
+        selected_by_program.setdefault(degree,set()).add(course.term)
+    selected_programs=set(selected_by_program)-{''}
     result=[]
     for issue in dataset.issues:
         if issue.level!='ERROR':continue
         source,fields=issue_source(dataset,issue)
         identity=registration_key(fields.get('registration',''))
-        candidates=[terms for (reg,degree),terms in selected.items() if reg==identity and
-                    (not fields.get('degree') or degree==program_key(fields['degree']) or 'CONFLICT' in issue.code)]
-        if not candidates:
-            # Synthetic/legacy sessions may have no raw row audit. Fail closed there.
-            if source is None:result.append(issue)
+        issue_program=program_key(fields.get('degree',''))
+        if not issue_program:
+            issue_program=program_key(registration_program(fields.get('registration','')))
+        program_terms=selected_by_program.get(issue_program,set())
+        registration_terms=set().union(*(terms for (registration,degree),terms in selected.items()
+                                        if identity and registration==identity
+                                        and (not issue_program or degree==issue_program))) if identity else set()
+        if source is None:
+            result.append(issue)
             continue
-        if 'CONFLICT' in issue.code:result.append(issue);continue
+        if identity:
+            if not registration_terms:continue
+            applicable_terms=registration_terms
+        elif issue_program:
+            if issue_program not in selected_programs:continue
+            applicable_terms=program_terms
+        else:
+            result.append(issue)
+            continue
         raw=fields.get('term') or fields.get('semester','')
         term=raw.upper() if term_order(raw.upper())[0]!=9999 else derive_term(raw)
-        terms=set().union(*candidates)
-        if all_terms or term_order(term)[0]==9999 or term in terms or (history and term_order(term)<=max(map(term_order,terms))):
+        exact_term=term in applicable_terms
+        before_cutoff=history and applicable_terms and term_order(term)<=max(map(term_order,applicable_terms))
+        if all_terms or term_order(term)[0]==9999 or exact_term or before_cutoff:
             result.append(issue)
     return result

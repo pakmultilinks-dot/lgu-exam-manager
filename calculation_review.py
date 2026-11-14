@@ -1,5 +1,5 @@
 """Explain calculation failures using the exact imported attempts, without changing policy."""
-from calculation_policy import AcademicIndex,calculation_attempts,CalculationReviewRequired,_values,is_status_only_non_gpa
+from calculation_policy import AcademicIndex,calculation_attempts,CalculationReviewRequired,_values
 from academic_identity import registration_key,program_key
 from gazette_layout import term_order
 from academic_engine import DataIssue
@@ -20,7 +20,6 @@ def calculation_review_issues(dataset,rows):
                 scope=[c for c in index.students.get((reg,degree),[]) if term_order(c.term)<=term_order(term)] if cumulative else [c for c in index.students.get((reg,degree),[]) if c.term==term]
                 problem=None;grades=set()
                 for c in scope:
-                    if is_status_only_non_gpa(c):continue
                     try:_values(c)
                     except CalculationReviewRequired:
                         grades.add(c.grade or '(blank)')
