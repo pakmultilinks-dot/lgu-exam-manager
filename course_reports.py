@@ -177,7 +177,10 @@ def export_gazette_pack(ds, rows, folder, *, settings=None):
                 ready_rows.extend(program_rows)
             else:
                 display=Counter(c.degree for c in program_rows).most_common(1)[0][0]
-                skipped.append((display,reason))
+                from validation_scope import relevant_errors
+                from fix_guidance import fix_lines_for_errors
+                errors=relevant_errors(ds,program_rows,history=True)
+                skipped.append((display,reason,fix_lines_for_errors(ds,errors)))
         if not ready_rows:
             continue
         safe=''.join(char if char.isalnum() else '_' for char in template).strip('_')
@@ -188,10 +191,13 @@ def export_gazette_pack(ds, rows, folder, *, settings=None):
             written.append(target)
     if skipped:
         note=output/'skipped-programs.txt'
-        note.write_text('\n'.join(
-            ['The following programs were not included in this pack; their source data needs review before they can be published:', '']
-            + [f'- {program}: {reason}' for program,reason in skipped]
-        ),encoding='utf-8')
+        parts=['The following programs were not included in this pack; their source data needs review before they can be published:','']
+        for program,reason,fixes in skipped:
+            parts.append(f'- {program}: {reason}')
+            if fixes:
+                parts.append('  How to fix:')
+                parts.extend(f'  * {line}' for line in fixes)
+        note.write_text('\n'.join(parts),encoding='utf-8')
     if not written:
         if skipped:
             raise ValueError('No department gazette could be exported: ' + '; '.join(f'{program}: {reason}' for program,reason in skipped))

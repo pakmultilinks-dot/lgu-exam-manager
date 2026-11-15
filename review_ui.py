@@ -48,6 +48,9 @@ def open_review(parent,dataset,rows,blocked_programs=None):
         if not selected:return
         issue=ordered[int(selected[0])];source,fields=issue_source(dataset,issue)
         text=f'Source workbook: {issue.source_file or dataset.source_filename}\nSheet: {issue.sheet} | Excel row: {issue.excel_row}\n\n'+issue.description+'\n\n'+'\n'.join(f'{key}: {value}' for key,value in (source or {}).get('cells',{}).items())
+        from fix_guidance import fix_guidance
+        fix=fix_guidance(dataset,issue)
+        if fix:text+='\n\nHow to fix:\n'+fix
         details.delete('1.0','end');details.insert('1.0',text)
     def open_source():
         selected=tree.selection()
