@@ -15,20 +15,26 @@ from test_academic_engine import _df
 def test_current_semester_only_and_earlier_history(tmp_path):
     source=tmp_path/'history.xlsx';_df().to_excel(source,index=False);ds=load_course_workbook(source)
     settings={'gazette_term':'SU26','cover_department':'TEST FACULTY','cover_period':'SUMMER 2026'}
-    assert {c.term for c in gazette_rows(ds,ds.courses,settings)}=={'SU26'}
+    # v4.5.2: gazette_rows returns the full history through the term cutoff, not just the current term.
+    assert {c.term for c in gazette_rows(ds,ds.courses,settings)}=={'S26','SU26'}
     first=ds.courses[0]
     assert AcademicIndex(ds.courses).summary(first.registration,first.degree,'SU26',True).exact_ratio==Fraction(Decimal('22.2'))/7
     output=tmp_path/'current.pdf';generate_draft('pdf',ds,ds.courses,str(output),settings=settings)
     with pymupdf.open(output) as doc:
         body='\n'.join(p.get_text() for p in list(doc)[2:])
-        assert 'CS101' in body and 'CS100' not in body
-        assert '3.17' in body
+        # Official Spring format: the block lists the Spring courses and the
+        # Summer retake (Summer at 0.00 Adj. GP), and the totals row excludes
+        # Summer. So CS100 (Spring) is printed, and the block totals are
+        # 19.80 / 7 / 2.83, not the Summer-only 13.2 / 4 / 3.30. The
+        # cumulative CGPA 3.17 is asserted on the CGPA list below, not here.
+        assert 'CS101' in body and 'CS100' in body
+        assert '2.83' in body
         assert 'TEST FACULTY' in doc[0].get_text()
         assert 'FEE DEFAULTERS' in doc[-1].get_text()
         from gazette_layout import _profile
         profile=_profile('computer-science',first.admission_session,first.degree,True)
         edges=profile['edges'];top=profile['body_top']
-        for column,expected in {8:'13.2',10:'22.2',11:'4',13:'7',14:'3.30',15:'3.17'}.items():
+        for column,expected in {8:'19.80',10:'19.80',11:'7',13:'7',14:'2.83',15:'2.83'}.items():
             text=doc[2].get_textbox(pymupdf.Rect(edges[column]+1,top,edges[column+1]-1,565))
             assert expected in text,(column,text)
     head,records=table_data('cgpa_list',ds,ds.filtered(term='SU26'))

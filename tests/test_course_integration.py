@@ -1,8 +1,9 @@
 """Regression coverage for canonical routes, provenance and actual Tk callbacks."""
 from pathlib import Path
-import sys,time
+import os,sys,time
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import pytest
+needs_display=pytest.mark.skipif(not os.environ.get('DISPLAY'),reason='Needs a display; run under xvfb-run or on Windows')
 from academic_engine import load_course_workbook
 from course_reports import ROUTES,capability,export_report,table_data
 from session_store import save,restore
@@ -52,6 +53,7 @@ def test_filtered_export_content(dataset,tmp_path):
     assert w['Course Results']['F2'].value=='SU26'
     with pytest.raises(ValueError,match='original'):export_report('register','excel',ds,rows,str(source))
 
+@needs_display
 def test_tk_dashboard_report_buttons_and_worker(dataset,monkeypatch):
     from app import App
     monkeypatch.setattr(App,'_restore_autosave',lambda self:None)
@@ -107,6 +109,7 @@ def test_decimal_policy_boundary():
     with pytest.raises(PolicyRequiredError):calculate_academic_values([])
 
 
+@needs_display
 def test_lazy_report_mode_switches(dataset,monkeypatch):
     # The application has one Tk interpreter per process. Match that lifecycle
     # rather than creating a second interpreter after a destroyed CTk root.
@@ -129,15 +132,22 @@ def test_lazy_report_mode_switches(dataset,monkeypatch):
         assert 'no GPA' not in panel.reason.cget('text')
         app.frames['academic'].terms.set('S26')
         assert all(c.term=='S26' for c in app.frames['academic'].chosen_courses())
-        assert all(c.term=='SU26' for c in panel.rows())
+        # v4.5.2: the register panel returns the full history through the
+        # S26 cycle cutoff (S26 + its Summer), not just the Summer rows.
+        assert {c.term for c in panel.rows()}=={'S26','SU26'}
         app.frames['academic'].terms.set('All Terms')
         app.show_frame('settings');app.update()
         settings=app.frames['settings']
         assert settings.course_panel.winfo_ismapped() and not settings.legacy_panel.winfo_ismapped()
         assert 'S26' in settings.course_panel.detected.cget('text')
-        settings.course_panel.select('Automatic from imported data')
+        # The Settings panel never had a template control; templates are
+        # chosen in Reports, and only for one program at a time (All
+        # programs always routes automatically). Pick the program, then
+        # its layout, and confirm the menu shows it.
+        panel.program_menu.set('BSCS');panel.refresh()
+        panel.set_template('Computer Science gazette')
         app.show_frame('reports');app.update()
-        assert panel.template_menu.get()=='Automatic from imported data'
+        assert panel.template_menu.get()=='Computer Science gazette'
         raw=generate(3,seed=2);app.set_data(raw,importer.suggest_mapping(raw),None)
         app.show_frame('reports');app.update()
         assert app.frames['reports'].legacy_built and not app.frames['reports'].course_panel.winfo_ismapped()
@@ -151,6 +161,26 @@ def test_lazy_report_mode_switches(dataset,monkeypatch):
         app.destroy()
 
 
+def test_pack_skips_blocked_program_but_exports_ready_ones(tmp_path):
+    from course_reports import export_gazette_pack
+    import pandas as pd
+    frame=_df().copy()
+    blocked=frame.iloc[[0]].copy()
+    blocked['DEGREE TITLE']='BS SE'
+    blocked['REGISTRATION NUMBERS']='Fa-2025/BSSE/001'
+    blocked['STUDENT NAME']='BLOCKED STUDENT'
+    extra=blocked.copy();extra['STUDENT NAME']='DIFFERENT NAME'
+    data=pd.concat([frame,blocked,extra],ignore_index=True)
+    source=tmp_path/'pack.xlsx';data.to_excel(source,index=False)
+    ds=load_course_workbook(source)
+    folder=tmp_path/'pack'
+    written=export_gazette_pack(ds,ds.courses,folder,settings={'gazette_term':'S26'})
+    assert len(written)==3
+    assert {p.name for p in written}=={'LGU_Gazette_computer_science.pdf','LGU_Gazette_computer_science.docx','LGU_Gazette_computer_science.xlsx'}
+    note=folder/'skipped-programs.txt'
+    assert note.exists() and 'BS SE' in note.read_text()
+
+
 def test_batch_respects_term_filters_but_keeps_cumulative_history(dataset,tmp_path,monkeypatch):
     import course_ui
     import threading
@@ -161,12 +191,19 @@ def test_batch_respects_term_filters_but_keeps_cumulative_history(dataset,tmp_pa
     academic=SimpleNamespace(chosen_courses=lambda ignore_term=False:ds.courses if ignore_term else selected)
     app=SimpleNamespace(academic_dataset=ds,frames={'academic':academic},report_settings={'gazette_term':'SU26'})
     app.run_job=lambda label,work,done:done(work())
-    panel=SimpleNamespace(app=app,stop=threading.Event(),status=SimpleNamespace(configure=lambda **kw:None))
+    # _ready_program_keys mirrors CourseReportPanel: None means the ready
+    # programs were not computed, so batch exports without filtering.
+    panel=SimpleNamespace(app=app,stop=threading.Event(),status=SimpleNamespace(configure=lambda **kw:None),_ready_program_keys=lambda:None)
     monkeypatch.setattr(course_ui.filedialog,'askdirectory',lambda **kw:str(tmp_path))
     monkeypatch.setattr(course_ui,'ROUTES',{'register':'Gazette','cgpa_list':'CGPA','term':'Term'})
     monkeypatch.setattr(course_ui,'export_report',lambda key,fmt,ds,rows,path,**kw:calls.setdefault((key,fmt),list(rows)))
+    from gazette_options import gazette_rows
+    # The gazette takes the full history through the cycle cutoff: the
+    # layout needs it for CGPA, and a Spring-cycle gazette must print the
+    # Spring courses, not just the Summer rows the filter selected.
+    expected_register=gazette_rows(ds,ds.courses,{'gazette_term':'SU26'})
     course_ui.CourseReportPanel.batch(panel)
     for fmt in ('pdf','word','excel'):
         assert calls['term',fmt]==selected
-        assert calls['register',fmt]==selected
+        assert calls['register',fmt]==expected_register
         assert calls['cgpa_list',fmt]==ds.courses

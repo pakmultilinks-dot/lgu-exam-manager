@@ -150,8 +150,16 @@ def export_report(key, fmt, ds, rows, path, template_key="auto",settings=None):
         return _write_report(key,fmt,ds,rows,str(temporary),template_key,settings)
 
 def export_gazette_pack(ds, rows, folder, *, settings=None):
-    """Write one PDF/Word/Excel gazette per automatically routed department."""
+    """Write one PDF/Word/Excel gazette per automatically routed department.
+
+    A program whose source data needs review blocks only itself: its rows
+    are left out of its department's gazette and listed in the pack's
+    skipped-programs note, so the ready programs still export instead of
+    one blocked program failing the whole pack.
+    """
+    from collections import Counter
     from gazette_options import gazette_rows, resolve_template_groups
+    from academic_identity import program_key
     if ds is None:
         raise ValueError('Import a course workbook first.')
     selected=gazette_rows(ds,ds.courses,settings or {})
@@ -159,13 +167,35 @@ def export_gazette_pack(ds, rows, folder, *, settings=None):
     output=Path(folder)
     output.mkdir(parents=True,exist_ok=True)
     written=[]
+    skipped=[]
     for template,department_rows in groups:
+        ready_rows=[]
+        for program in sorted({program_key(c.degree) for c in department_rows}):
+            program_rows=[c for c in department_rows if program_key(c.degree)==program]
+            ok,reason=capability('register',ds,program_rows)
+            if ok:
+                ready_rows.extend(program_rows)
+            else:
+                display=Counter(c.degree for c in program_rows).most_common(1)[0][0]
+                skipped.append((display,reason))
+        if not ready_rows:
+            continue
         safe=''.join(char if char.isalnum() else '_' for char in template).strip('_')
         for fmt,ext in (('pdf','.pdf'),('word','.docx'),('excel','.xlsx')):
             target=output/f'LGU_Gazette_{safe}{ext}'
-            export_report('register',fmt,ds,department_rows,str(target),
+            export_report('register',fmt,ds,ready_rows,str(target),
                           template_key=template,settings=settings)
             written.append(target)
+    if skipped:
+        note=output/'skipped-programs.txt'
+        note.write_text('\n'.join(
+            ['The following programs were not included in this pack; their source data needs review before they can be published:', '']
+            + [f'- {program}: {reason}' for program,reason in skipped]
+        ),encoding='utf-8')
+    if not written:
+        if skipped:
+            raise ValueError('No department gazette could be exported: ' + '; '.join(f'{program}: {reason}' for program,reason in skipped))
+        raise ValueError('No department gazette could be exported.')
     return written
 
 

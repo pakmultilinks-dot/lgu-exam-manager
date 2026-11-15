@@ -42,7 +42,9 @@ def test_missing_pdf_reader_does_not_turn_generated_preview_into_app_failure(tmp
     target=tmp_path/'preview.pdf';target.write_bytes(b'%PDF-1.4\n%%EOF')
     notices=[]
     def unavailable(path):raise OSError('No PDF association')
-    monkeypatch.setattr(course_ui.os,'startfile',unavailable)
+    # os.startfile exists only on Windows; create it on other platforms so
+    # the missing-reader path can still be exercised.
+    monkeypatch.setattr(course_ui.os,'startfile',unavailable,raising=False)
     monkeypatch.setattr(course_ui.messagebox,'showinfo',lambda title,text:notices.append(text))
     course_ui.open_pdf_preview(str(target))
     assert target.exists() and len(notices)==1 and str(target) in notices[0]

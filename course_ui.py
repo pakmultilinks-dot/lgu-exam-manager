@@ -14,8 +14,10 @@ from gazette_options import (TEMPLATE_LABELS,available_programs,available_templa
 
 def open_pdf_preview(path):
     if not Path(path).is_file():raise ValueError('The generated PDF preview is missing.')
+    # os.startfile exists only on Windows; a missing PDF association (or a
+    # missing startfile) must show the notice, never fail the preview.
     try:os.startfile(path)
-    except OSError:
+    except (OSError,AttributeError):
         messagebox.showinfo('PDF preview saved',f'The PDF was generated, but Windows could not open a PDF reader.\n\nOpen this file in a PDF reader or browser:\n{path}')
 
 
@@ -492,8 +494,10 @@ class CourseReportPanel(ctk.CTkFrame):
         def work():
             return export_gazette_pack(ds,rows,folder,settings=settings)
         def done(written):
-            self.status.configure(text=f'{len(written)} department gazette files saved in {folder}')
-            messagebox.showinfo('Department gazette pack',f'{len(written)} files saved in:\n{folder}')
+            skipped_note=folder/'skipped-programs.txt'
+            suffix='\n\nSome programs were skipped; see skipped-programs.txt in the folder.' if skipped_note.exists() else ''
+            self.status.configure(text=f'{len(written)} department gazette files saved in {folder}'+(' (some programs skipped)' if skipped_note.exists() else ''))
+            messagebox.showinfo('Department gazette pack',f'{len(written)} files saved in:\n{folder}{suffix}')
         self.app.run_job('Department gazette pack',work,done)
     def batch(self):
         if not operation_available(self.app):return

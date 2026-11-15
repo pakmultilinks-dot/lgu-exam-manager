@@ -1,9 +1,11 @@
 from pathlib import Path
 from dataclasses import replace
 from types import SimpleNamespace
+import os
 import threading
 import pandas as pd
 import pytest
+needs_display=pytest.mark.skipif(not os.environ.get('DISPLAY'),reason='Needs a display; run under xvfb-run or on Windows')
 from academic_engine import load_course_workbook
 from course_reports import export_report,capability
 from gazette_options import current_term
@@ -77,6 +79,7 @@ def test_export_snapshot_keeps_scale_and_fees_stable(tmp_path):
     assert frozen.grade_scale['B']=='3' and frozen.courses is ds.courses
 
 
+@needs_display
 def test_settings_paste_and_stale_term_review_routes(tmp_path,monkeypatch):
     from app import App
     from course_reports import ROUTES

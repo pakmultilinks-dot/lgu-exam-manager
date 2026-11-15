@@ -9,7 +9,10 @@ def protect_source(dataset,path):
     target=Path(path).resolve()
     paths=getattr(dataset,'source_paths',[])
     if paths:
-        protected=any(target==Path(source).resolve() or (target.exists() and Path(source).exists() and os.path.samefile(target,source)) for source in paths)
+        # A case-only rename is the same file on Windows (case-insensitive),
+        # so reject it even though the path does not exist yet and samefile
+        # cannot see it. A matching name in another directory stays allowed.
+        protected=any(target==Path(source).resolve() or (target.exists() and Path(source).exists() and os.path.samefile(target,source)) or (target.parent==Path(source).resolve().parent and target.name.casefold()==Path(source).name.casefold()) for source in paths)
     else:
         protected=any(Path(c.source_file).name.casefold()==target.name.casefold() for c in dataset.courses)
     if protected:raise ValueError('Output must not overwrite the original workbook.')

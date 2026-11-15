@@ -1,3 +1,8 @@
+import os
+import pytest
+needs_display=pytest.mark.skipif(not os.environ.get('DISPLAY'),reason='Needs a display; run under xvfb-run or on Windows')
+
+@needs_display
 def test_default_launch_stays_empty_with_saved_workspace(tmp_path,monkeypatch):
     from app import App
     from academic_engine import ResultDataset

@@ -1,7 +1,10 @@
+import os
 import time
 import pytest
+needs_display=pytest.mark.skipif(not os.environ.get('DISPLAY'),reason='Needs a display; run under xvfb-run or on Windows')
 
 
+@needs_display
 def test_explicit_open_and_clear_buttons_preserve_saved_file(tmp_path,monkeypatch):
     from app import App
     from academic_engine import ResultDataset
