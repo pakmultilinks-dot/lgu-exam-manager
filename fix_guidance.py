@@ -20,6 +20,17 @@ _COMPACT_TERM = re.compile(r"(SU|S|F)[\s_/-]*(\d{2}|\d{4})", re.I)
 _CORE_ROLES = ("registration", "name", "course_code", "course_name", "credits", "grade")
 _GUIDED_CODES = ("STUDENT_NAME_CONFLICT", "DEGREE_CONFLICT", "INVALID_CREDITS", "MISSING_REQUIRED")
 _MAX_ROWS_LISTED = 10
+_LETTER_GRADES = {"A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D"}
+
+
+def _grade_group(grade):
+    """Letter grades (A to D) carry grade points; PASS, F and the rest do not."""
+    return "letter" if (grade or "").strip().upper() in _LETTER_GRADES else "other"
+
+
+def _plural(count, one, many):
+    """Pick the singular or plural wording for a count."""
+    return one if count == 1 else many
 
 
 def _missing(value: str) -> bool:
@@ -47,6 +58,10 @@ class _Evidence:
         self.names_by_registration = defaultdict(lambda: defaultdict(list))
         self.degrees_by_registration = defaultdict(lambda: defaultdict(list))
         self.credits_by_course = defaultdict(Counter)
+        self.credits_by_course_program = defaultdict(Counter)
+        self.credits_by_course_program_grade = defaultdict(Counter)
+        self.programs_by_course = defaultdict(set)
+        self.program_display_names = defaultdict(Counter)
         self.course_names = defaultdict(Counter)
         self.program_term_courses = defaultdict(dict)
         self.student_term_courses = defaultdict(set)
@@ -72,6 +87,11 @@ class _Evidence:
             return match[1].upper() + match[2][-2:]
         return derive_term(self._cell(row, "semester"))
 
+    def program_display(self, key):
+        """The program name as written in the file, not the normalized key."""
+        names = self.program_display_names.get(key)
+        return names.most_common(1)[0][0] if names else key
+
     def _build(self):
         for row in self.dataset.source_rows:
             reg = registration_key(self._cell(row, "registration"))
@@ -88,6 +108,13 @@ class _Evidence:
                 self.degrees_by_registration[reg][_key(degree)].append((degree, excel_row))
             if code and not _missing(code):
                 self.credits_by_course[code.upper()][credits] += 1
+                program = program_key(degree) if degree and not _missing(degree) else ""
+                if program:
+                    self.programs_by_course[code.upper()].add(program)
+                    self.program_display_names[program][degree.strip()] += 1
+                    self.credits_by_course_program[(code.upper(), program)][credits] += 1
+                    self.credits_by_course_program_grade[
+                        (code.upper(), program, _grade_group(self._cell(row, "grade")))][credits] += 1
                 course_name = self._cell(row, "course_name")
                 if course_name and not _missing(course_name):
                     self.course_names[code.upper()][course_name] += 1
@@ -159,20 +186,8 @@ def _conflict_fix(evidence, dataset, issue, *, role, label, column_label):
     return " ".join(lines)
 
 
-def _invalid_credits_fix(evidence, dataset, issue):
-    source, fields = issue_source(dataset, issue)
-    code = fields.get("course_code", "")
-    if _missing(code):
-        return None
-    distribution = evidence.credits_by_course.get(code.upper())
-    if not distribution:
-        return None
-    course_name = fields.get("course_name", "")
-    if _missing(course_name):
-        names = evidence.course_names.get(code.upper())
-        course_name = names.most_common(1)[0][0] if names else ""
-    title = f"course {code}" + (f" ({course_name})" if course_name and not _missing(course_name) else "")
-    total = sum(distribution.values())
+def _split_credits(distribution):
+    """Split a credit-hour distribution into usable values, zeros, blanks, other."""
     valid = defaultdict(Counter)
     zero_rows = 0
     blank_rows = 0
@@ -189,47 +204,136 @@ def _invalid_credits_fix(evidence, dataset, issue):
         if not value.is_finite():
             other_rows += count
         elif value == 0:
-            # Zero credit hours is not a usable course load, so it is never
-            # recommended; it is only reported as evidence.
             zero_rows += count
         elif Decimal(0) < value <= Decimal(50):
             valid[value][raw] += count
         else:
             other_rows += count
+    return valid, zero_rows, blank_rows, other_rows
+
+
+def _dominant(valid, total_rows):
+    """The dominant positive value in a split distribution, or None.
+
+    One value counts as dominant when it is the only positive value, or
+    when it covers at least 80 percent of the rows in scope and at least
+    twice the next value.
+    """
     if not valid:
-        if zero_rows == 0 and other_rows == 0:
-            return (
-                f"No credit hours for {title} appear anywhere in this file. Every row for "
-                f"this course is blank or '-'. Enter the credit hours from the program's "
-                f"course catalog in the CRH cell of Excel row {issue.excel_row}.")
-        detail = "; ".join(
-            part for part in (
-                f"{zero_rows} rows say 0" if zero_rows else "",
-                f"{blank_rows} rows are blank or '-'" if blank_rows else "",
-                f"{other_rows} rows have a value that is not a number" if other_rows else "",
-            ) if part)
-        return (
-            f"No usable credit hours for {title} appear anywhere in this file ({detail}). "
-            f"Enter the credit hours from the program's course catalog in the CRH "
-            f"cell of Excel row {issue.excel_row}.")
+        return None
     totals = sorted(((sum(counter.values()), value, counter) for value, counter in valid.items()),
                     key=lambda item: (-item[0], str(item[1])))
     top_count, top_value, top_spellings = totals[0]
-    display = top_spellings.most_common(1)[0][0]
-    dominant = len(totals) == 1 or (
-        top_count / total >= 0.8 and top_count >= 2 * totals[1][0])
-    if dominant:
+    if len(totals) == 1 or (top_count / total_rows >= 0.8 and top_count >= 2 * totals[1][0]):
+        return top_count, top_value, top_spellings
+    return None
+
+
+def _invalid_credits_fix(evidence, dataset, issue):
+    source, fields = issue_source(dataset, issue)
+    code = fields.get("course_code", "")
+    if _missing(code):
+        return None
+    course_name = fields.get("course_name", "")
+    if _missing(course_name):
+        names = evidence.course_names.get(code.upper())
+        course_name = names.most_common(1)[0][0] if names else ""
+    title = f"course {code}" + (f" ({course_name})" if course_name and not _missing(course_name) else "")
+    program = program_key(fields.get("degree", "")) if not _missing(fields.get("degree", "")) else ""
+    display_program = evidence.program_display(program) if program else ""
+    group = _grade_group(fields.get("grade", ""))
+    # Narrowest scope first: same course, program and grade group, then the
+    # program, then the whole file. A course can be worth different credits
+    # in different programs, so the whole-file value is only a fallback.
+    scopes = []
+    if program:
+        scopes.append((f"for {display_program}", evidence.credits_by_course_program_grade.get((code.upper(), program, group), {})))
+        scopes.append((f"for {display_program}", evidence.credits_by_course_program.get((code.upper(), program), {})))
+    scopes.append(("", evidence.credits_by_course.get(code.upper(), {})))
+    for scope_label, distribution in scopes:
+        if not distribution:
+            continue
+        valid, zero_rows, blank_rows, other_rows = _split_credits(distribution)
+        total = sum(distribution.values())
+        dom = _dominant(valid, total)
+        if dom is not None:
+            top_count, _, top_spellings = dom
+            display = top_spellings.most_common(1)[0][0]
+            return (
+                f"Course {code}" + (f" ({course_name})" if course_name and not _missing(course_name) else "")
+                + f" has {display} credit hours in {top_count} of {total} rows in this file"
+                + (f" {scope_label}" if scope_label else "")
+                + f". Set the CRH cell to {display} in Excel row {issue.excel_row}.")
+        if not valid and zero_rows > 0:
+            if scope_label:
+                # Zero is the only recorded value in this scope, so it is
+                # the recorded value for the group, not a missing one.
+                detail = "; ".join(
+                    part for part in (
+                        f"{zero_rows} {_plural(zero_rows, 'row says', 'rows say')} 0" if zero_rows else "",
+                        f"{blank_rows} {_plural(blank_rows, 'row is', 'rows are')} blank or '-'" if blank_rows else "",
+                    ) if part)
+                contrast = ""
+                others = sorted(
+                    other for other in evidence.programs_by_course.get(code.upper(), set())
+                    if other != program)
+                other_values = []
+                for other in others[:2]:
+                    other_dist = evidence.credits_by_course_program.get((code.upper(), other), {})
+                    other_valid, _, _, _ = _split_credits(other_dist)
+                    other_dom = _dominant(other_valid, sum(other_dist.values()))
+                    if other_dom is not None:
+                        other_values.append(f"{evidence.program_display(other)} rows say {other_dom[2].most_common(1)[0][0]}")
+                if other_values:
+                    contrast = " The " + "; ".join(other_values) + "."
+                return (
+                    f"Course {code}" + (f" ({course_name})" if course_name and not _missing(course_name) else "")
+                    + f" is recorded as 0 credit hours {scope_label} in this file ({detail}).{contrast} "
+                    f"Set the CRH cell to 0 in Excel row {issue.excel_row}. If the course catalog "
+                    f"says otherwise, use the catalog value.")
+            detail = "; ".join(
+                part for part in (
+                    f"{zero_rows} {_plural(zero_rows, 'row says', 'rows say')} 0" if zero_rows else "",
+                    f"{blank_rows} {_plural(blank_rows, 'row is', 'rows are')} blank or '-'" if blank_rows else "",
+                    f"{other_rows} {_plural(other_rows, 'row has', 'rows have')} a value that is not a number" if other_rows else "",
+                ) if part)
+            return (
+                f"No usable credit hours for {title} appear anywhere in this file ({detail}). "
+                f"Enter the credit hours from the program's course catalog in the CRH "
+                f"cell of Excel row {issue.excel_row}.")
+        if valid:
+            # Values disagree and none dominates; the answer is the catalog,
+            # not a broader scope that would hide the disagreement.
+            totals = sorted(((sum(counter.values()), value, counter) for value, counter in valid.items()),
+                            key=lambda item: (-item[0], str(item[1])))
+            top_count, _, top_spellings = totals[0]
+            second_count, _, second_spellings = totals[1]
+            return (
+                f"Rows for {title} disagree about credit hours in this file "
+                f"({top_count} rows say {top_spellings.most_common(1)[0][0]}, "
+                f"{second_count} rows say {second_spellings.most_common(1)[0][0]}). Check the "
+                f"program's course catalog and set the CRH cell in Excel row {issue.excel_row} "
+                f"to the correct value.")
+        # This scope has no evidence at all; try the next, broader scope.
+    overall = evidence.credits_by_course.get(code.upper(), {})
+    if not overall:
+        return None
+    valid, zero_rows, blank_rows, other_rows = _split_credits(overall)
+    if zero_rows == 0 and other_rows == 0:
         return (
-            f"Course {code}" + (f" ({course_name})" if course_name and not _missing(course_name) else "")
-            + f" has {display} credit hours in {top_count} of {total} "
-            f"rows in this file. Set the CRH cell to {display} in Excel row {issue.excel_row}.")
-    second_count, second_value, second_spellings = totals[1]
+            f"No credit hours for {title} appear anywhere in this file. Every row for "
+            f"this course is blank or '-'. Enter the credit hours from the program's "
+            f"course catalog in the CRH cell of Excel row {issue.excel_row}.")
+    detail = "; ".join(
+        part for part in (
+            f"{zero_rows} {_plural(zero_rows, 'row says', 'rows say')} 0" if zero_rows else "",
+            f"{blank_rows} {_plural(blank_rows, 'row is', 'rows are')} blank or '-'" if blank_rows else "",
+            f"{other_rows} {_plural(other_rows, 'row has', 'rows have')} a value that is not a number" if other_rows else "",
+        ) if part)
     return (
-        f"Rows for {title} disagree about credit hours in this file "
-        f"({top_count} rows say {top_spellings.most_common(1)[0][0]}, "
-        f"{second_count} rows say {second_spellings.most_common(1)[0][0]}). Check the "
-        f"program's course catalog and set the CRH cell in Excel row {issue.excel_row} "
-        f"to the correct value.")
+        f"No usable credit hours for {title} appear anywhere in this file ({detail}). "
+        f"Enter the credit hours from the program's course catalog in the CRH "
+        f"cell of Excel row {issue.excel_row}.")
 
 
 def _header_label(dataset, issue, role):

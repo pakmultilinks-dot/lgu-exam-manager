@@ -37,6 +37,20 @@ def _error_frame():
         ["SPRING 2026", "Fa-2025/BSCS/003", "STUDENT GAMMA", 0, "-", "-", "-", "-", "-", "BSCS", 0, "S26"],
         # Row 16: nothing but a grade, no student and no course.
         ["SPRING 2026", "-", "-", 0, "-", "-", "-", "-", "A", "-", 0, "S26"],
+        # Rows 17-19: MATHX is 3 credit hours for BS IT (Spring 2025).
+        ["SPRING 2025", "Fa-2025/BS IT/001", "IT STUDENT", 0, "MATHX", "Maths X", 3, 90, "A", "BS IT", 9.0, "S25"],
+        ["SPRING 2025", "Fa-2025/BS IT/001", "IT STUDENT", 0, "MATHX", "Maths X", 3, 80, "B", "BS IT", 9.0, "S25"],
+        ["SPRING 2025", "Fa-2025/BS IT/001", "IT STUDENT", 0, "MATHX", "Maths X", 3, 70, "C", "BS IT", 9.0, "S25"],
+        # Rows 20-21: MATHX is recorded as 0 credit hours for BSCS.
+        ["SPRING 2025", "Fa-2025/BSCS/002", "STUDENT BETA", 0, "MATHX", "Maths X", 0, 0, "PASS", "BSCS", 9.0, "S25"],
+        ["SPRING 2025", "Fa-2025/BSCS/002", "STUDENT BETA", 0, "MATHX", "Maths X", 0, 0, "F", "BSCS", 9.0, "S25"],
+        # Row 22: MATHX credit hours missing for a BSCS student.
+        ["SPRING 2025", "Fa-2025/BSCS/002", "STUDENT BETA", 0, "MATHX", "Maths X", "-", 0, "F", "BSCS", 0, "S25"],
+        # Rows 23-24: MATHY has no positive credit hours anywhere.
+        ["SPRING 2025", "Fa-2025/BSCS/003", "STUDENT GAMMA", 0, "MATHY", "Maths Y", 0, 0, "PASS", "BSCS", 9.0, "S25"],
+        ["SPRING 2025", "Fa-2025/BSCS/003", "STUDENT GAMMA", 0, "MATHY", "Maths Y", 0, 0, "F", "BSCS", 9.0, "S25"],
+        # Row 25: MATHY credit hours missing for a BSCS student.
+        ["SPRING 2025", "Fa-2025/BSCS/003", "STUDENT GAMMA", 0, "MATHY", "Maths Y", "-", 0, "F", "BSCS", 0, "S25"],
     ], columns=list(base.columns))
     frame = pd.concat([base, extra], ignore_index=True)
     frame["CRH"] = frame["CRH"].astype(object)
@@ -119,3 +133,18 @@ def test_skip_note_includes_fix_lines(error_dataset, tmp_path):
     assert "No credit hours for course CS999 (New Course) appear anywhere in this file" in text
     assert "CS101" in text
     assert "\u2014" not in text
+
+
+def test_credit_guidance_scopes_by_program(error_dataset):
+    fix = fix_guidance(error_dataset, _issue(error_dataset, "INVALID_CREDITS", 22))
+    assert "Set the CRH cell to 0 in Excel row 22." in fix
+    assert "BSCS" in fix
+    assert "BS IT rows say 3" in fix
+    assert "Set the CRH cell to 3" not in fix
+
+
+def test_credit_guidance_zero_only_in_program(error_dataset):
+    fix = fix_guidance(error_dataset, _issue(error_dataset, "INVALID_CREDITS", 25))
+    assert "Set the CRH cell to 0 in Excel row 25." in fix
+    assert "BSCS" in fix
+    assert "course catalog" in fix
