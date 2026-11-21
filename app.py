@@ -1102,7 +1102,6 @@ class DashboardFrame(ctk.CTkFrame):
                     canvas.create_text(x+cell/2,y+50,text=str(value),font=("Arial",28,"bold"),fill=LGU_GREEN,tags="metric")
                     canvas.create_text(x+cell/2,y+103,text=label,font=("Arial",12),fill=TEXT_MID,tags="metric")
             self.metric_canvas.bind("<Configure>",draw_metrics)
-            self.metric_canvas.tag_bind("metric","<Button-1>",lambda e:self.app.show_frame("academic"))
             draw_metrics()
             ctk.CTkButton(self.cards,text="Filter / search / inspect",command=lambda:self.app.show_frame("academic")).pack(anchor="w",padx=8,pady=10)
             counts=ds.counts()

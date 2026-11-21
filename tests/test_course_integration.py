@@ -263,3 +263,41 @@ def test_default_term_is_the_term_with_most_results(tmp_path):
     assert current_term(ds, {}) == 'F25'
     # An explicit term choice still wins.
     assert current_term(ds, {'gazette_term': 'S26'}) == 'S26'
+
+
+@needs_display
+def test_dashboard_metric_click_stays_on_dashboard(dataset, monkeypatch):
+    # Regression: the Dashboard metric cards used to carry a hidden
+    # <Button-1> binding that jumped to Academic Records, so clicking
+    # anywhere on the Dashboard looked like a navigation error.
+    import os, subprocess, sys
+    if os.environ.get('LGU_GUI_ISOLATED') != '1':
+        env = dict(os.environ, LGU_GUI_ISOLATED='1')
+        result = subprocess.run([sys.executable, '-m', 'pytest',
+                                 str(Path(__file__).resolve()) + '::test_dashboard_metric_click_stays_on_dashboard',
+                                 '-q'], env=env, capture_output=True, text=True, timeout=120)
+        assert result.returncode == 0, result.stdout + result.stderr
+        return
+    from app import App
+    monkeypatch.setattr(App, '_restore_autosave', lambda self: None)
+    app = App()
+    ds, source = dataset
+    try:
+        app.set_academic_data(ds, str(source))
+        app.show_frame('dashboard')
+        app.update()
+        panel = app.frames['dashboard']
+        assert panel.winfo_ismapped()
+        # No click binding may remain on the metric cards.
+        assert panel.metric_canvas.tag_bind('metric', '<Button-1>') == ''
+        # Click on the first metric card: the Dashboard must stay shown.
+        canvas = panel.metric_canvas
+        canvas.update_idletasks()
+        canvas.event_generate('<Button-1>', x=60, y=60)
+        app.update()
+        assert panel.winfo_ismapped()
+        assert not app.frames['academic'].winfo_ismapped()
+    finally:
+        for job in app.tk.call('after', 'info'):
+            app.after_cancel(job)
+        app.destroy()

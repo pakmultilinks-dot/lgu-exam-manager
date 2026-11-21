@@ -1,3 +1,12 @@
+# v4.6.1
+
+Navigation fix: the Dashboard metric cards used to carry a hidden click
+binding that jumped to Academic Records, so clicking anywhere on the
+Dashboard looked like a navigation error. The cards are display only now.
+The labelled "Filter / search / inspect" button stays as the way to open
+Academic Records. Regression test: a click on a metric card leaves the
+Dashboard shown.
+
 # v4.6.0
 
 New "All terms gazette pack": a file that spans several terms (for example Fall 2020 to Fall 2025) now gets one department gazette per term, in a subfolder named by the term (F20, S21, F21, ...). Each term's gazette holds only that term's programs and students, with CGPA from the full history through that term, and nothing else from the file. A pack-summary.txt at the root lists what was made for each term. The single-term pack is unchanged.
