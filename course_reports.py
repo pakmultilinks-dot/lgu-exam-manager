@@ -149,13 +149,15 @@ def export_report(key, fmt, ds, rows, path, template_key="auto",settings=None):
     with atomic_output(path) as temporary:
         return _write_report(key,fmt,ds,rows,str(temporary),template_key,settings)
 
-def export_gazette_pack(ds, rows, folder, *, settings=None):
-    """Write one PDF/Word/Excel gazette per automatically routed department.
+def _export_pack_for_term(ds, rows, folder, *, settings=None):
+    """One-term pack: returns (written, skipped).
 
-    A program whose source data needs review blocks only itself: its rows
-    are left out of its department's gazette and listed in the pack's
-    skipped-programs note, so the ready programs still export instead of
-    one blocked program failing the whole pack.
+    The pack always uses the full imported dataset for the term (the `rows`
+    argument is kept for the call shape only); the term in `settings` decides
+    which records are selected. A program whose source data needs review
+    blocks only itself: its rows are left out of its department's gazette
+    and listed in the pack's skipped-programs note, so the ready programs
+    still export instead of one blocked program failing the whole pack.
     """
     from collections import Counter
     from gazette_options import gazette_rows, resolve_template_groups
@@ -198,11 +200,83 @@ def export_gazette_pack(ds, rows, folder, *, settings=None):
                 parts.append('  How to fix:')
                 parts.extend(f'  * {line}' for line in fixes)
         note.write_text('\n'.join(parts),encoding='utf-8')
+    return written, skipped
+
+
+def export_gazette_pack(ds, rows, folder, *, settings=None):
+    """Write one PDF/Word/Excel gazette per automatically routed department.
+
+    One publication term only (the term in `settings`, or the default term).
+    For a file that spans several terms, use export_gazette_pack_all_terms.
+    A program whose source data needs review blocks only itself: its rows
+    are left out of its department's gazette and listed in the pack's
+    skipped-programs note, so the ready programs still export instead of
+    one blocked program failing the whole pack.
+    """
+    written, skipped = _export_pack_for_term(ds, rows, folder, settings=settings)
     if not written:
         if skipped:
             raise ValueError('No department gazette could be exported: ' + '; '.join(f'{program}: {reason}' for program,reason in skipped))
         raise ValueError('No department gazette could be exported.')
     return written
+
+
+def export_gazette_pack_all_terms(ds, rows, folder, *, settings=None):
+    """Write a department gazette pack for EVERY publication term in the data.
+
+    A file that spans several terms (for example Fall 2020 to Fall 2025) gets
+    one gazette per term, in a subfolder named by the term (F20, S21, F21, ...).
+    Each term's gazette holds only that term's programs and students, with
+    CGPA from the full history through that term, and nothing else from the
+    file. A term whose programs all need review is noted and skipped; the
+    other terms still export. A pack-summary.txt at the root lists what was
+    made for each term.
+    """
+    from gazette_options import publication_terms, publication_term_label
+    if ds is None:
+        raise ValueError('Import a course workbook first.')
+    terms = publication_terms(ds)
+    if not terms:
+        raise ValueError('No publication terms found in the imported data.')
+    output = Path(folder)
+    output.mkdir(parents=True, exist_ok=True)
+    all_written = []
+    all_skipped = []
+    term_lines = []
+    for term in terms:
+        term_settings = dict(settings or {})
+        term_settings['gazette_term'] = term
+        sub = output / term.upper()
+        try:
+            written, skipped = _export_pack_for_term(ds, rows, sub, settings=term_settings)
+        except ValueError as exc:
+            all_skipped.append((term, '', str(exc), []))
+            term_lines.append(f'{term}: no gazette, {exc}')
+            continue
+        all_written.extend(written)
+        for program, reason, fixes in skipped:
+            all_skipped.append((term, program, reason, fixes))
+        if written:
+            term_lines.append(f'{term} ({publication_term_label(term, ds)}): {len(written)} files')
+        else:
+            term_lines.append(f'{term}: no gazette exported')
+    if all_skipped:
+        note = output / 'skipped-programs.txt'
+        parts = ['The following programs were not included in their term pack; their source data needs review before they can be published:', '']
+        for term, program, reason, fixes in all_skipped:
+            who = f'{program} ({term})' if program else term
+            parts.append(f'- {who}: {reason}')
+            if fixes:
+                parts.append('  How to fix:')
+                parts.extend(f'  * {line}' for line in fixes)
+        note.write_text('\n'.join(parts), encoding='utf-8')
+    (output / 'pack-summary.txt').write_text(
+        'All-terms gazette pack\n' + '\n'.join(term_lines) + f'\n\n{len(all_written)} files in total.\n',
+        encoding='utf-8')
+    if not all_written:
+        raise ValueError('No department gazette could be exported for any term: ' + '; '.join(
+            f'{program or term}: {reason}' for term, program, reason, _ in all_skipped))
+    return all_written
 
 
 def _write_report(key, fmt, ds, rows, path, template_key="computer-science",settings=None):

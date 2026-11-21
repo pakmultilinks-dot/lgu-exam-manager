@@ -1,3 +1,9 @@
+# v4.6.0
+
+New "All terms gazette pack": a file that spans several terms (for example Fall 2020 to Fall 2025) now gets one department gazette per term, in a subfolder named by the term (F20, S21, F21, ...). Each term's gazette holds only that term's programs and students, with CGPA from the full history through that term, and nothing else from the file. A pack-summary.txt at the root lists what was made for each term. The single-term pack is unchanged.
+
+Default term fix: when no publication term is chosen, the app now uses the term with the most results instead of simply the latest term. A file ending with a nearly empty latest term (a new term with only a handful of rows) no longer produces a useless gazette. An explicitly chosen term still wins.
+
 # v4.5.2
 
 Validation scoping now uses mapped program fields for source errors even when required identity fields are missing, while retaining registration-level scoping for filtered student selections. Unassociated source errors fail closed. This avoids coupling export decisions to a specific workbook, filename, program list, or Excel row.

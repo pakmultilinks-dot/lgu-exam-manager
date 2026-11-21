@@ -160,7 +160,14 @@ def current_term(dataset, settings):
     valid=publication_terms(dataset)
     if not valid:
         raise ValueError('Map a valid exam term before selecting the current semester.')
-    return valid[-1]
+    # No term chosen: use the term with the most results, not simply the
+    # latest. A file can end with a nearly empty latest term (a new term with
+    # only a handful of rows), and the gazette for that stub is useless.
+    # Ties go to the later term.
+    from collections import Counter
+    from gazette_layout import term_order
+    counts=Counter(course.term.upper() for course in dataset.courses)
+    return max(valid, key=lambda term: (counts.get(term.upper(), 0), term_order(term)))
 
 
 def gazette_rows(dataset, rows, settings):

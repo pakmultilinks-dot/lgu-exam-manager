@@ -207,3 +207,59 @@ def test_batch_respects_term_filters_but_keeps_cumulative_history(dataset,tmp_pa
         assert calls['term',fmt]==selected
         assert calls['register',fmt]==expected_register
         assert calls['cgpa_list',fmt]==ds.courses
+
+
+def _two_term_df():
+    import pandas as pd
+    return pd.DataFrame([
+        ["FALL 2025", "Fa-2025/BSCS/001", "STUDENT ALPHA", 0, "CS100", "Course One", 3, 74.5, "B", "BSCS", 9.0, "F25"],
+        ["FALL 2025", "Fa-2025/BSCS/001", "STUDENT ALPHA", 0, "CS101", "Course Two", 4, 55.0, "B-", "BSCS", 10.8, "F25"],
+        ["SPRING 2026", "Fa-2025/BSCS/001", "STUDENT ALPHA", 0, "CS102", "Course Three", 3, 90.0, "A", "BSCS", 12.0, "S26"],
+        ["SPRING 2026", "Fa-2025/BSCS/001", "STUDENT ALPHA", 0, "CS103", "Course Four", 3, 85.0, "A-", "BSCS", 11.1, "S26"],
+        ["SPRING 2026", "Fa-2025/BSBCH/001", "STUDENT BETA", 0, "BCHM311", "Biochemistry I", 3, 87.0, "A", "BS BCH", 12.0, "S26"],
+        ["SPRING 2026", "Fa-2025/BSBCH/001", "STUDENT BETA", 0, "BCHM312", "Ecology I", 3, 89.0, "A", "BS BCH", 12.0, "S26"],
+    ], columns=["SEMESTER", "REGISTRATION NUMBERS", "STUDENT NAME", "AWARD ID", "COURSE CODE", "COURSE NAME", "CRH", "Total Marks", "Grade", "DEGREE TITLE", "GPs", "SHORT SEMESTER"])
+
+
+def test_all_terms_pack_writes_one_pack_per_term(tmp_path):
+    from course_reports import export_gazette_pack_all_terms
+    source = tmp_path / 'two-term.xlsx'
+    _two_term_df().to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    folder = tmp_path / 'all-terms-pack'
+    written = export_gazette_pack_all_terms(ds, ds.courses, folder, settings={})
+    names = {p.relative_to(folder).as_posix() for p in written}
+    assert names == {
+        'F25/LGU_Gazette_computer_science.pdf',
+        'F25/LGU_Gazette_computer_science.docx',
+        'F25/LGU_Gazette_computer_science.xlsx',
+        'S26/LGU_Gazette_computer_science.pdf',
+        'S26/LGU_Gazette_computer_science.docx',
+        'S26/LGU_Gazette_computer_science.xlsx',
+        'S26/LGU_Gazette_allied_health_biology.pdf',
+        'S26/LGU_Gazette_allied_health_biology.docx',
+        'S26/LGU_Gazette_allied_health_biology.xlsx',
+    }
+    summary = (folder / 'pack-summary.txt').read_text(encoding='utf-8')
+    assert 'F25' in summary and 'S26' in summary
+    assert '9 files in total' in summary
+    # The F25 pack holds only F25 rows: the S26 Biology student is not in it.
+    from openpyxl import load_workbook
+    f25 = load_workbook(folder / 'F25' / 'LGU_Gazette_computer_science.xlsx')
+    assert 'STUDENT BETA' not in str([c.value for row in f25['Course Results'].iter_rows() for c in row])
+    s26 = load_workbook(folder / 'S26' / 'LGU_Gazette_allied_health_biology.xlsx')
+    assert 'STUDENT BETA' in str([c.value for row in s26['Course Results'].iter_rows() for c in row])
+
+
+def test_default_term_is_the_term_with_most_results(tmp_path):
+    from gazette_options import current_term
+    import pandas as pd
+    frame = _two_term_df().iloc[[0, 1, 2]].copy()
+    frame.loc[frame['SHORT SEMESTER'] == 'S26', 'SHORT SEMESTER'] = 'S26'
+    source = tmp_path / 'default-term.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    # F25 has 2 courses, S26 has 1: the default term is F25 even though S26 is later.
+    assert current_term(ds, {}) == 'F25'
+    # An explicit term choice still wins.
+    assert current_term(ds, {'gazette_term': 'S26'}) == 'S26'

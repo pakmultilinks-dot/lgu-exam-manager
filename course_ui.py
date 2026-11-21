@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 from tkinter import filedialog, messagebox, Text
 import customtkinter as ctk
-from course_reports import ROUTES, capability, export_gazette_pack, export_report
+from course_reports import ROUTES, capability, export_gazette_pack, export_gazette_pack_all_terms, export_report
 from gazette_options import (TEMPLATE_LABELS,available_programs,available_template_labels,
                              gazette_program_statuses,
                              gazette_route_summary,selection_description,current_term,gazette_rows,
@@ -173,6 +173,7 @@ class CourseReportPanel(ctk.CTkFrame):
         ctk.CTkButton(actions,text='Review data',width=110,command=self.review_selection).pack(side='left',padx=4)
         ctk.CTkButton(actions,text='Batch available reports',command=self.batch).pack(side='left',padx=4)
         ctk.CTkButton(actions,text='Department gazette pack',command=self.department_pack).pack(side='left',padx=4)
+        ctk.CTkButton(actions,text='All terms gazette pack',command=self.department_pack_all_terms).pack(side='left',padx=4)
         ctk.CTkButton(actions,text='Cancel batch',command=self.cancel).pack(side='left',padx=4)
         self.status=ctk.CTkLabel(self,text='',wraplength=800);self.status.pack(anchor='w',padx=24,pady=8)
         self.details=ctk.CTkLabel(self,text='',wraplength=800,text_color='#526174',justify='left')
@@ -499,6 +500,26 @@ class CourseReportPanel(ctk.CTkFrame):
             self.status.configure(text=f'{len(written)} department gazette files saved in {folder}'+(' (some programs skipped)' if skipped_note.exists() else ''))
             messagebox.showinfo('Department gazette pack',f'{len(written)} files saved in:\n{folder}{suffix}')
         self.app.run_job('Department gazette pack',work,done)
+    def department_pack_all_terms(self):
+        if not operation_available(self.app):return
+        base=filedialog.askdirectory(title='Choose all-terms gazette destination')
+        if not base:return
+        ds=dataset_snapshot(self.app.academic_dataset)
+        if ds is None:
+            messagebox.showwarning('Gazette pack','Import a course workbook first.')
+            return
+        rows=list(self.app.academic_dataset.courses)
+        folder=Path(base)/(time.strftime('LGU_ALL_TERMS_GAZETTES_%Y%m%d_%H%M%S'))
+        settings=dict(self.app.report_settings)
+        self.status.configure(text='Generating a gazette for every term in background...')
+        def work():
+            return export_gazette_pack_all_terms(ds,rows,folder,settings=settings)
+        def done(written):
+            skipped_note=folder/'skipped-programs.txt'
+            suffix='\n\nSome programs were skipped; see skipped-programs.txt in the folder.' if skipped_note.exists() else ''
+            self.status.configure(text=f'{len(written)} gazette files saved in {folder} (one folder per term)'+(' (some programs skipped)' if skipped_note.exists() else ''))
+            messagebox.showinfo('All terms gazette pack',f'{len(written)} files saved in:\n{folder}\n\nOne folder per term; see pack-summary.txt in the folder.{suffix}')
+        self.app.run_job('All terms gazette pack',work,done)
     def batch(self):
         if not operation_available(self.app):return
         base=filedialog.askdirectory(title='Choose private report destination')
