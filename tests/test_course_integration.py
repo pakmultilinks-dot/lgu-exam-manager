@@ -265,6 +265,50 @@ def test_default_term_is_the_term_with_most_results(tmp_path):
     assert current_term(ds, {'gazette_term': 'S26'}) == 'S26'
 
 
+def test_excel_gazette_sheet_matches_official_layout(tmp_path):
+    # Regression (21 Nov 2026): the Excel Gazette sheet used a different table
+    # than the official gazette (RESULT GAZETTE, PUBLICATION CYCLE line, GP
+    # RATE / COURSE GP columns, identity repeated on every row, raw floats
+    # like 11.100000000000001). It must match the official sheet: RESULT
+    # STATEMENT, SESSION line, the 17 official columns, identity once per
+    # student block, totals on the last course row, clean 2-decimal numbers,
+    # title only at the top (never repeated on printed pages).
+    frame = _two_term_df().iloc[[4, 5]].copy()
+    source = tmp_path / 'biology.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    path = tmp_path / 'gazette.xlsx'
+    export_report('register', 'excel', ds, ds.courses, str(path),
+                  template_key='allied-health-biology', settings={'gazette_term': 'S26'})
+    from openpyxl import load_workbook
+    ws = load_workbook(path)['Gazette']
+    assert ws['A1'].value == 'LAHORE GARRISON UNIVERSITY'
+    assert ws['A2'].value == 'RESULT STATEMENT'
+    assert 'DEPARTMENT OF' in ws['A3'].value and 'BIOLOGY' in ws['A3'].value
+    assert ws['A4'].value == 'SESSION - FALL 2025 - { SEMESTER - SPRING 2026 }'
+    assert ws['I5'].value == 'GP' and ws['L5'].value == 'Chr'
+    assert [ws.cell(row=6, column=c).value for c in range(1, 18)] == [
+        'SR', 'DEGREE ID', 'REGISTRATION NUMBERS', 'STUDENT NAME', 'SEM',
+        'COURSE CODE', 'COURSE NAME', 'GRADE', 'GP', 'Adj.', 'T.GP', 'CH',
+        'Adj.', 'T.CH', 'SGPA', 'Adj. GPA', 'COMMENTS']
+    assert ws.print_title_rows is None
+    # Identity once, on the first row of the block only.
+    assert ws['A7'].value == 1 and ws['D7'].value == 'STUDENT BETA'
+    assert ws['A8'].value is None and ws['D8'].value is None
+    # Totals on the last course row (row 8): 12.00 + 12.00 = 24.00, 6 credits.
+    assert ws['I8'].value == '24.00' and ws['K8'].value == '24.00'
+    assert ws['L8'].value == '6' and ws['N8'].value == '6'
+    assert ws['O8'].value == '4.00' and ws['P8'].value == '4.00'
+    # Block padded to 10 rows with '-' rows; NOTE ( If any ) in the SR column.
+    assert ws['F9'].value == '-' and ws['G9'].value == '-' and ws['H9'].value == '-'
+    assert ws['A11'].value == 'NOTE ( If any )'
+    assert ws.max_row >= 16
+    # No float storage noise anywhere on the Gazette sheet.
+    for row in ws.iter_rows():
+        for cell in row:
+            assert not (isinstance(cell.value, str) and '000000000' in cell.value), cell.coordinate
+
+
 @needs_display
 def test_dashboard_metric_click_stays_on_dashboard(dataset, monkeypatch):
     # Regression: the Dashboard metric cards used to carry a hidden

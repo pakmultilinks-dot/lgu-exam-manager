@@ -1,3 +1,18 @@
+# v4.6.2
+
+Excel Gazette sheet now matches the official LGU layout, the same table as
+the PDF. Before, the Excel sheet had a different table: RESULT GAZETTE, a
+PUBLICATION CYCLE line, GP RATE / COURSE GP / TOTAL GP columns, the student
+identity repeated on every row, and raw float text like 11.100000000000001.
+Now it has RESULT STATEMENT, a SESSION line, the 17 official columns (GP and
+Chr each split in GP, Adj., T.GP and CH, Adj., T.CH, plus SGPA, Adj. GPA and
+COMMENTS), one block per student with the identity once, totals on the last
+course row, clean 2-decimal numbers (64.10, 3.77), blocks padded to 10 rows
+with '-' rows, and the NOTE ( If any ) label. The title appears once at the
+top only and is never repeated on printed pages. The audit sheets are
+unchanged. Regression test: the Excel Gazette sheet matches the official
+layout and the example student block.
+
 # v4.6.1
 
 Navigation fix: the Dashboard metric cards used to carry a hidden click

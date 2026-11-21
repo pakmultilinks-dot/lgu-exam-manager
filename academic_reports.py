@@ -66,19 +66,41 @@ def _excel_safe(value):
 
 
 def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, settings):
+    """The Gazette sheet, in the official LGU layout (the same table as the PDF).
+
+    The title (LAHORE GARRISON UNIVERSITY / RESULT STATEMENT / DEPARTMENT OF
+    ... / SESSION - ...) appears once at the top only, never repeated on the
+    sheet or on printed pages. Columns are the official ones: SR, DEGREE ID,
+    REGISTRATION NUMBERS, STUDENT NAME, SEM, COURSE CODE, COURSE NAME, GRADE,
+    GP (GP, Adj., T.GP), Chr (CH, Adj., T.CH), SGPA, Adj. GPA, COMMENTS.
+    Each student is one block: identity once, one row per course, totals on
+    the last course row, Adj. columns blank as in the official sheet, blocks
+    padded to 10 rows with '-' rows. Numbers are clean 2-decimal text, never
+    raw floats. The audit sheets keep the exact values and per-course points.
+    """
     from collections import defaultdict
-    from decimal import Decimal
     from fractions import Fraction
-    from openpyxl.styles import Alignment, Font, PatternFill
-    from openpyxl.worksheet.table import Table, TableStyleInfo
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
     from academic_identity import program_key
     from calculation_policy import (AcademicIndex, CalculationReviewRequired,
                                     calculation_attempts, display_ratio)
     from fee_register import selected_defaulters
-    from gazette_layout import _cohort_short, _profile, term_order
+    from gazette_layout import _cohort_short, _full_term, _plain_number, _profile, term_order
     from gazette_options import current_term, resolve_template_groups
     from semester_reports import roll_order
+
+    # The 17 official columns (the wide layout: GP and Chr each split in 3).
+    columns = [
+        'SR', 'DEGREE ID', 'REGISTRATION NUMBERS', 'STUDENT NAME',
+        'SEM', 'COURSE CODE', 'COURSE NAME', 'GRADE',
+        'GP', 'Adj.', 'T.GP', 'CH', 'Adj.', 'T.CH', 'SGPA', 'Adj. GPA', 'COMMENTS',
+    ]
+    width = len(columns)
+    dark_green = '0D542B'
+    header_fill = PatternFill('solid', fgColor=dark_green)
+    thin = Side(style='thin', color='000000')
+    cell_border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
     worksheet = workbook.create_sheet('Gazette', 0)
     workbook.active = 0
@@ -89,50 +111,64 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
     worksheet.sheet_properties.pageSetUpPr.fitToPage = True
     worksheet.page_margins.left = worksheet.page_margins.right = 0.25
     worksheet.page_margins.top = worksheet.page_margins.bottom = 0.4
-    columns = [
-        'DEPARTMENT', 'SR', 'DEGREE ID', 'REGISTRATION NUMBERS', 'STUDENT NAME',
-        'SEM', 'COURSE CODE', 'COURSE NAME', 'GRADE', 'GP RATE', 'COURSE GP',
-        'CH', 'TOTAL GP', 'TOTAL CH', 'SGPA', 'CUMULATIVE GP',
-        'CUMULATIVE CH', 'CGPA', 'COMMENTS',
-    ]
-    width = len(columns)
-    dark_green = '0D542B'
-    header_fill = PatternFill('solid', fgColor=dark_green)
-    title = worksheet.cell(1, 1, 'LAHORE GARRISON UNIVERSITY')
-    title.font = Font(name='Cambria', size=18, bold=True, color=dark_green)
-    worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=width)
-    worksheet.cell(2, 1, 'RESULT GAZETTE')
-    worksheet.cell(2, 1).font = Font(name='Cambria', size=15, bold=True)
-    worksheet.merge_cells(start_row=2, start_column=1, end_row=2, end_column=width)
+    # Title only at the top: no print_title_rows, nothing repeated.
 
     groups = resolve_template_groups(template_key, courses)
     departments = set()
+    cohorts = set()
     for key, group_rows in groups:
         for cohort, degree in {(c.admission_session, c.degree) for c in group_rows}:
             profile = _profile(key, cohort, degree)
             departments.update(item['text'].strip() for item in profile['header']
                                if 'DEPARTMENT OF' in item['text'])
+            cohorts.add(cohort)
     department_label = (next(iter(departments)) if len(departments) == 1
                         else 'DEPARTMENTAL GAZETTE')
-    worksheet.cell(3, 1, department_label)
-    worksheet.cell(3, 1).font = Font(name='Cambria', size=13, bold=True, color=dark_green)
-    worksheet.merge_cells(start_row=3, start_column=1, end_row=3, end_column=width)
+    # Collapse the double spaces the official header text carries.
+    department_label = ' '.join(department_label.split())
     term = current_term(dataset, settings or {})
-    worksheet.cell(4, 1, f'PUBLICATION CYCLE: {term} | SOURCE: {dataset.source_filename}')
-    worksheet.cell(4, 1).font = Font(name='Arial', size=10, italic=True)
-    worksheet.merge_cells(start_row=4, start_column=1, end_row=4, end_column=width)
-    worksheet.freeze_panes = 'A7'
+    if len(cohorts) == 1:
+        session_line = f'SESSION - {next(iter(cohorts))} - {{ SEMESTER - {_full_term(term)} }}'
+    else:
+        session_line = f'SESSION - {{ SEMESTER - {_full_term(term)} }}'
 
-    effective = calculation_attempts(dataset)
-    effective_by_source = {
-        (raw.source_file, raw.source_sheet, raw.source_excel_row): calculated
-        for raw, calculated in zip(dataset.courses, effective, strict=True)
-    }
-    calculations = AcademicIndex(effective)
+    navy = '17365D'
+    title = worksheet.cell(1, 1, 'LAHORE GARRISON UNIVERSITY')
+    title.font = Font(name='Cambria', size=18, bold=True, color=navy)
+    title.alignment = Alignment(horizontal='center', vertical='center')
+    worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=width)
+    worksheet.cell(2, 1, 'RESULT STATEMENT')
+    worksheet.cell(2, 1).font = Font(name='Cambria', size=15, bold=True)
+    worksheet.cell(2, 1).alignment = Alignment(horizontal='center', vertical='center')
+    worksheet.merge_cells(start_row=2, start_column=1, end_row=2, end_column=width)
+    worksheet.cell(3, 1, department_label)
+    worksheet.cell(3, 1).font = Font(name='Cambria', size=13, bold=True, color=navy)
+    worksheet.cell(3, 1).alignment = Alignment(horizontal='center', vertical='center')
+    worksheet.merge_cells(start_row=3, start_column=1, end_row=3, end_column=width)
+    worksheet.cell(4, 1, session_line)
+    worksheet.cell(4, 1).font = Font(name='Arial', size=10)
+    worksheet.cell(4, 1).alignment = Alignment(horizontal='center', vertical='center')
+    worksheet.merge_cells(start_row=4, start_column=1, end_row=4, end_column=width)
+
+    # Group header row (GP over its 3 columns, Chr over its 3) and label row.
+    for start, end, label in ((9, 11, 'GP'), (12, 14, 'Chr')):
+        worksheet.merge_cells(start_row=5, start_column=start, end_row=5, end_column=end)
+        cell = worksheet.cell(5, start, label)
+        cell.font = Font(name='Arial', size=9, bold=True)
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+    for column, value in enumerate(columns, 1):
+        cell = worksheet.cell(6, column, value)
+        cell.font = Font(name='Arial', size=9, bold=True, color='000000')
+        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True,
+                                   text_rotation=90 if value == 'GRADE' else 0)
+    worksheet.row_dimensions[6].height = 36
+
+    calculations = AcademicIndex(calculation_attempts(dataset))
     fees = selected_defaulters(dataset, courses, term)
     withheld = {registration_key(record.registration) for record in fees}
     contents = []
     gazette_rows = []
+    blocks = []
     serial = 0
 
     for key, department_rows in groups:
@@ -157,72 +193,80 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
                 terms = defaultdict(list)
                 for course in attempts:
                     terms[course.term].append(course)
+                block_start = len(gazette_rows)
                 for attempt_term, term_courses in sorted(terms.items(),
                                                         key=lambda item: term_order(item[0])):
                     term_courses.sort(key=lambda c: (c.source_excel_row, c.course_code.casefold()))
-                    summary_values = ['', '', '', '', '', '']
+                    totals = None
                     comment = ''
                     try:
                         semester = calculations.summary(registration, degree, attempt_term)
                         cumulative = calculations.summary(registration, degree, attempt_term, True)
-                        summary_values = [
-                            _display_source_number(semester.total_grade_points),
-                            _display_source_number(semester.total_credit_hours),
-                            display_ratio(semester.exact_ratio),
-                            _display_source_number(cumulative.total_grade_points),
-                            _display_source_number(cumulative.total_credit_hours),
-                            display_ratio(cumulative.exact_ratio),
-                        ]
+                        totals = {
+                            'gp': display_ratio(Fraction(semester.total_grade_points)),
+                            'ch': _plain_number(semester.total_credit_hours),
+                            'sgpa': display_ratio(semester.exact_ratio),
+                            'adj_gpa': display_ratio(cumulative.exact_ratio),
+                        }
                     except CalculationReviewRequired as error:
-                        summary_values = ['REVIEW'] * 6
+                        totals = {'gp': 'REVIEW', 'ch': 'REVIEW', 'sgpa': 'REVIEW', 'adj_gpa': 'REVIEW'}
                         comment = f'GPA/CGPA review: {error}'
                     for course_index, course in enumerate(term_courses):
-                        calculated = effective_by_source.get(
-                            (course.source_file, course.source_sheet, course.source_excel_row), course)
-                        rate = course.grade_point_rate.strip()
-                        if not rate and course.grade.strip().upper() in dataset.grade_scale:
-                            rate = dataset.grade_scale[course.grade.strip().upper()]
-                        if not rate:
-                            try:
-                                rate = display_ratio(
-                                    Fraction(Decimal(calculated.quality_points)) /
-                                    Fraction(Decimal(course.credits)))
-                            except (ArithmeticError, ValueError):
-                                rate = ''
-                        values = [
-                            key.replace('-', ' ').title(), serial, course.degree,
-                            registration, student_name, course.term, course.course_code,
-                            course.course_name, course.grade, rate,
-                            calculated.quality_points, course.credits,
-                            *(summary_values if course_index == len(term_courses) - 1
-                              else ['', '', '', '', '', '']),
-                            comment if course_index == len(term_courses) - 1 else '',
-                        ]
+                        values = [''] * width
+                        if len(gazette_rows) == block_start:
+                            values[0] = serial
+                            values[1] = course.degree
+                            values[2] = registration
+                            values[3] = student_name
+                        values[4] = course.term.upper()
+                        values[5] = course.course_code
+                        values[6] = course.course_name.upper()
+                        values[7] = course.grade
+                        if course_index == len(term_courses) - 1 and totals is not None:
+                            values[8] = totals['gp']
+                            values[10] = totals['gp']
+                            values[11] = totals['ch']
+                            values[13] = totals['ch']
+                            values[14] = totals['sgpa']
+                            values[15] = totals['adj_gpa']
+                            values[16] = comment
                         gazette_rows.append([
                             _excel_safe(value) if isinstance(value, str) else value
                             for value in values
                         ])
+                # Pad the block to 10 rows with '-' rows, like the official sheet.
+                while len(gazette_rows) - block_start < 10:
+                    gazette_rows.append(['', '', '', '', '', '-', '-', '-', '', '', '', '', '', '', '', '', ''])
+                blocks.append((block_start, len(gazette_rows) - block_start))
             first_result_row = 7 + start_index
             contents.append((key.replace('-', ' ').title(), cohort, degree,
                              first_result_row, len(gazette_rows) - start_index,
                              len(reg_groups)))
 
-    for column, value in enumerate(columns, 1):
-        cell = worksheet.cell(6, column, value)
-        cell.font = Font(name='Arial', size=9, bold=True, color='FFFFFF')
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
     for row in gazette_rows:
         worksheet.append(row)
     result_end_row = 6 + len(gazette_rows)
-    if gazette_rows:
-        table = Table(displayName='GazetteResults', ref=f'A6:S{result_end_row}')
-        table.tableStyleInfo = TableStyleInfo(name='TableStyleMedium4',
-                                               showFirstColumn=False,
-                                               showLastColumn=False,
-                                               showRowStripes=True,
-                                               showColumnStripes=False)
-        worksheet.add_table(table)
+
+    # Identity spans the first 4 rows of each block; NOTE ( If any ) fills
+    # the SR column below it, rotated, as in the official sheet.
+    for start_index, row_count in blocks:
+        first = 7 + start_index
+        for col in range(1, 5):
+            worksheet.merge_cells(start_row=first, start_column=col, end_row=first + 3, end_column=col)
+            worksheet.cell(row=first, column=col).alignment = Alignment(
+                horizontal='center', vertical='center', wrap_text=True)
+        if row_count > 4:
+            worksheet.merge_cells(start_row=first + 4, start_column=1,
+                                  end_row=first + row_count - 1, end_column=1)
+            note = worksheet.cell(row=first + 4, column=1, value='NOTE ( If any )')
+            note.font = Font(name='Arial', size=9, bold=True)
+            note.alignment = Alignment(horizontal='center', vertical='center', text_rotation=90)
+
+    # Plain black grid over the whole table (no Excel Table: it cannot hold
+    # merged cells, and the official sheet is a plain bordered grid).
+    for r in range(5, result_end_row + 1):
+        for c in range(1, width + 1):
+            worksheet.cell(row=r, column=c).border = cell_border
 
     current_row = result_end_row + 2
     fee_title = worksheet.cell(current_row, 1, 'FEE DEFAULTERS')
@@ -232,7 +276,7 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
                           end_row=current_row, end_column=width)
     current_row += 1
     fee_columns = ['SR', 'DEGREE ID', 'REGISTRATION NUMBERS', 'STUDENT NAME', 'COMMENTS']
-    fee_positions = [2, 3, 4, 5, 19]
+    fee_positions = [2, 3, 4, 5, 17]
     for col, value in zip(fee_positions, fee_columns, strict=True):
         cell = worksheet.cell(current_row, col, value)
         cell.font = Font(name='Arial', size=9, bold=True, color='FFFFFF')
@@ -275,11 +319,10 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
         contents_sheet.column_dimensions[get_column_letter(column)].width = column_width
     contents_sheet.freeze_panes = 'A4'
 
-    widths = [25, 8, 15, 24, 28, 10, 15, 44, 10, 12, 14, 10, 14, 12, 10, 16, 14, 10, 24]
+    widths = [8, 13, 20, 24, 8, 14, 42, 8, 10, 9, 10, 9, 9, 10, 10, 11, 16]
     for col, column_width in enumerate(widths, 1):
         worksheet.column_dimensions[get_column_letter(col)].width = column_width
     worksheet.freeze_panes = 'F7'
-    worksheet.print_title_rows = '1:4'
     worksheet.sheet_properties.outlinePr.summaryBelow = True
 
 
