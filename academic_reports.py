@@ -108,7 +108,8 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
                                     display_ratio, standing_comment,
                                     USER_CONFIRMED_POLICY)
     from fee_register import selected_defaulters
-    from gazette_layout import _cohort_short, _full_term, _plain_number, _profile, _window, term_order
+    from gazette_layout import (_adj_values, _cohort_short, _full_term,
+                                _plain_number, _profile, _window, term_order)
     from gazette_options import current_term, resolve_template_groups
     from semester_reports import roll_order
 
@@ -254,6 +255,14 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
                         values[5] = course.course_code
                         values[6] = course.course_name.upper()
                         values[7] = course.grade
+                        # Adj. GP / Adj. CH follow the PDF rule exactly:
+                        # blank on a first-time course, the replaced
+                        # prior attempt's GP and CH on a repeated
+                        # course, so the Excel and PDF gazettes agree.
+                        adj_gp, adj_ch = _adj_values(
+                            course, None, calculations, registration, degree)
+                        values[9] = adj_gp
+                        values[12] = adj_ch
                         gazette_rows.append([
                             _excel_safe(value) if isinstance(value, str) else value
                             for value in values

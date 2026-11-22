@@ -1,3 +1,28 @@
+# v4.6.7
+
+Three fixes, each verified on the real F20 file by rendering the actual
+PDF and Excel output.
+
+(1) Excel Adj. GP and Adj. CH now match the PDF on repeated courses. The
+PDF already showed the replaced prior attempt (MUHAMMAD AYHAN FAROOQ
+F22 BTCH311 Adj. 0.00 and 3), but the Excel export left both Adj.
+columns blank on repeats. The Excel gazette now uses the same Adj. rule
+as the PDF: blank on a first-time course, the replaced prior attempt's
+GP and CH on a repeated course. First-time courses stay blank in Excel.
+
+(2) PDF cover: the badge area no longer shows a bright-white rectangular
+patch. The badge box is rebuilt from the cover's own dotted background
+texture (a smooth inpaint of the surrounding paper, with the badge's
+drop shadow removed and the green border frame restored), so the old
+badge area blends with the rest of the cover. The semester is back on
+the cover, as plain printed dark-green text in the top-right area where
+the badge was, with no background, no gold and no ribbon: FALL
+SEMESTER 2020, sized to fit on one line.
+
+(3) PDF T.CH header: the label is shrunk by an extra 0.5 pt and centred
+inside its narrow column, so it now clears the column's right border
+instead of touching it.
+
 # v4.6.6
 
 Full audit fix, every item verified on the real F20 file by rendering the

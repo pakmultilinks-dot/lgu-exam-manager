@@ -405,7 +405,7 @@ def test_app_title_uses_the_current_version():
     # even after v4.6.2 shipped, so the user could not tell which version
     # he was running. The title now comes from one APP_VERSION constant.
     from app import APP_VERSION
-    assert APP_VERSION == 'v4.6.6'
+    assert APP_VERSION == 'v4.6.7'
 
 
 def test_float_noise_does_not_flip_half_up_rounding(tmp_path):
@@ -636,3 +636,73 @@ def test_gazette_contents_counts_only_active_term_students(tmp_path):
     contents = load_workbook(path)['Gazette Contents']
     students = [row[6] for row in contents.iter_rows(min_row=4, values_only=True) if row[0] is not None]
     assert students == [2]
+
+
+def test_excel_gazette_adj_matches_pdf_on_repeated_courses(tmp_path):
+    # Regression (22 Nov 2026, v4.6.7): the Excel gazette left Adj. GP
+    # and Adj. CH blank on repeated courses while the PDF showed the
+    # replaced prior attempt. AYHAN failed BTCH311 at 0.00 in F20 and
+    # retook it in F22 for 6.00, so the F22 Excel row must show Adj.
+    # 0.00 and 3, and a first-time F22 course must stay blank.
+    import pandas as pd
+    frame = pd.DataFrame([
+        ["FALL 2020", "Fa-2020/BSBT/002", "STUDENT AYHAN", 0, "BTCH311", "Biotechnology I", 3, 20.0, "F", "BS BT", 0.0, "F20"],
+        ["FALL 2022", "Fa-2020/BSBT/002", "STUDENT AYHAN", 0, "BTCH311", "Biotechnology I", 3, 60.0, "C", "BS BT", 6.0, "F22"],
+        ["FALL 2022", "Fa-2020/BSBT/002", "STUDENT AYHAN", 0, "BTCH341", "Biotechnology III", 3, 75.0, "B", "BS BT", 9.0, "F22"],
+    ], columns=["SEMESTER", "REGISTRATION NUMBERS", "STUDENT NAME", "AWARD ID", "COURSE CODE", "COURSE NAME", "CRH", "Total Marks", "Grade", "DEGREE TITLE", "GPs", "SHORT SEMESTER"])
+    source = tmp_path / 'excel-adj.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    path = tmp_path / 'gazette.xlsx'
+    export_report('register', 'excel', ds, ds.courses, str(path),
+                  template_key='allied-health-biology', settings={'gazette_term': 'F22'})
+    from openpyxl import load_workbook
+    ws = load_workbook(path)['Gazette']
+    # Row 7 is the F22 BTCH311 repeat, row 8 the first-time BTCH341.
+    # Adj. GP is col J, Adj. CH is col M.
+    assert ws['J7'].value == '0.00' and ws['M7'].value == '3'
+    assert ws['J8'].value in (None, '') and ws['M8'].value in (None, '')
+
+
+def test_tch_header_clears_column_right_border(tmp_path):
+    # Regression (22 Nov 2026, v4.6.7): T.CH touched the right vertical
+    # border of its narrow column on 17-column pages. It is now shrunk
+    # by 0.5 pt and centred in its column, so it must end with at least
+    # 1 pt of clear space before the column's right border.
+    import pandas as pd
+    frame = pd.DataFrame([
+        ["FALL 2020", "Fa-2020/BSBT/002", "STUDENT AYHAN", 0, "BTCH311", "Biotechnology I", 3, 20.0, "F", "BS BT", 0.0, "F20"],
+        ["FALL 2022", "Fa-2020/BSBT/002", "STUDENT AYHAN", 0, "BTCH311", "Biotechnology I", 3, 60.0, "C", "BS BT", 6.0, "F22"],
+        ["FALL 2022", "Fa-2020/BSBT/002", "STUDENT AYHAN", 0, "BTCH341", "Biotechnology III", 3, 75.0, "B", "BS BT", 9.0, "F22"],
+    ], columns=["SEMESTER", "REGISTRATION NUMBERS", "STUDENT NAME", "AWARD ID", "COURSE CODE", "COURSE NAME", "CRH", "Total Marks", "Grade", "DEGREE TITLE", "GPs", "SHORT SEMESTER"])
+    source = tmp_path / 'tch.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    path = tmp_path / 'gazette.pdf'
+    export_report('register', 'pdf', ds, ds.courses, str(path),
+                  template_key='allied-health-biology', settings={'gazette_term': 'F22'})
+    import fitz
+    doc = fitz.open(path)
+    tch_right = None
+    for page in doc:
+        for block in page.get_text('dict')['blocks']:
+            for line in block.get('lines', []):
+                for span in line['spans']:
+                    if span['text'].strip() == 'T.CH':
+                        tch_right = span['bbox'][2]
+                        break
+                if tch_right is not None:
+                    break
+            if tch_right is not None:
+                break
+        if tch_right is not None:
+            break
+    assert tch_right is not None, 'T.CH header not found in the PDF'
+    from gazette_layout import _profile
+    profile = _profile('allied-health-biology', 'FALL 2020', 'BS BT', require_cgpa=True)
+    edges = profile['edges']
+    origin = next(item['origin'][0] for item in profile['header']
+                  if item['text'].strip() == 'T.CH')
+    right = next(edges[i + 1] for i in range(len(edges) - 1)
+                 if edges[i] <= origin < edges[i + 1])
+    assert tch_right <= right - 1.0, f'T.CH ends {tch_right:.2f}, column right border {right:.2f}'

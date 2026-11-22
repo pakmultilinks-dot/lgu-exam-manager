@@ -240,8 +240,25 @@ def _cover(pdf,rows,key,settings=None,publication_term=None):
     if asset.is_file():pdf.image(str(asset),0,0,612,792)
     else:raise ValueError('Gazette cover artwork missing: '+key)
     # No badge on the cover: the gold semester badge was painted out of
-    # the cover artwork, and no period rect or period text is drawn
-    # here. The semester stays in the gazette body and contents.
+    # the cover artwork. The semester itself stays on the cover, as
+    # plain printed text with no background, no gold and no ribbon, in
+    # the top-right area where the badge was, sized to fit one line.
+    if publication_term:
+        full = _full_term(publication_term)
+        try:
+            season, year = full.split(' ', 1)
+            semester_label = f'{season} SEMESTER {year}'
+        except ValueError:
+            semester_label = full
+        box_x, box_y, box_w, box_h = 405, 32, 180, 28
+        size = 18.0
+        pdf.set_font('Title', 'B', size)
+        while pdf.get_string_width(semester_label) > box_w - 4 and size > 10:
+            size -= 0.5
+            pdf.set_font('Title', 'B', size)
+        pdf.set_text_color(0, 58, 34)
+        _text(pdf, semester_label, box_x, box_y, box_w, box_h,
+              size=size, style='B', family='Title')
     pdf.set_text_color(0,0,0)
     headers={s['text'].strip() for cohort,degree in {(c.admission_session,c.degree) for c in rows} for s in _profile(key,cohort,degree)['header'] if 'DEPARTMENT OF' in s['text']}
     department=next(iter(headers)) if len(headers)==1 else key.replace('-',' ').upper()+' DEPARTMENT'
@@ -316,6 +333,11 @@ def _header(pdf,page,number):
                 if y-pdf.get_string_width(text)>=top_border+0.5:break
                 size-=0.3
             sizes[index]=round(size,2);continue
+        if text.strip()=='T.CH':
+            # T.CH sits in a narrow column and its label ran right up to
+            # the column's right border. Give it extra room and centre
+            # it in its column box below.
+            size=max(5.0,size-0.5)
         if item.get('center') or 'SESSION' in text:
             sizes[index]=size;continue
         while True:
@@ -328,6 +350,14 @@ def _header(pdf,page,number):
         sizes[index]=round(size,2)
     for index,item in enumerate(items):
         text=item['text'];family,style=_source_font(item['font']);pdf.set_font(family,style,sizes[index]);x,y=item['origin']
+        if text.strip()=='T.CH':
+            # Centre T.CH in its column box so it clears both borders.
+            edges=profile['edges']
+            for col in range(len(edges)-1):
+                if edges[col]<=x<edges[col+1]:
+                    centre=(edges[col]+edges[col+1])/2
+                    x=centre-pdf.get_string_width(text)/2
+                    break
         if 'SESSION' in text:
             text=f'SESSION -  {cohort}  - {{ SEMESTER -  {_full_term(window)} }}'
             x=(792-pdf.get_string_width(text))/2
