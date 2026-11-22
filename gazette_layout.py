@@ -117,6 +117,17 @@ def _window(term,available):
     return term
 
 
+def _in_window(term,publication_window):
+    # A course belongs to the publication window if its term is the
+    # window itself, or if it is the Summer of a Spring window
+    # (SUyy folds into Syy, as in the Excel gazette and the official
+    # LGU gazettes).
+    term=term.upper();pub=publication_window.upper()
+    if term==pub:
+        return True
+    return pub.startswith('S') and not pub.startswith('SU') and term=='SU'+pub[1:]
+
+
 def _full_term(term):
     m=re.fullmatch(r'(SU|S|F)(\d{2,4})',term)
     if not m:return term
@@ -370,7 +381,7 @@ def _header(pdf,page,number):
     pdf.set_text_color(0,0,0);_text(pdf,str(number),760,4,28,15,size=12)
 
 
-def _block(pdf,sr,identity,chunk,height,part,y,profile,calculations=None,standing_cutoff=None):
+def _block(pdf,sr,identity,chunk,height,part,y,profile,calculations=None,standing_cutoff=None,window=None):
     x=profile['edges'];row_h=profile['row_height'];cohort,degree,registration,name=identity
     identity_h=min(4*row_h,height)
     for i,value in enumerate((sr,degree,registration,name+(' (cont.)' if part else ''))):
@@ -407,48 +418,53 @@ def _block(pdf,sr,identity,chunk,height,part,y,profile,calculations=None,standin
         else:
             pdf.rect(x[9],current,x[10]-x[9],h);pdf.rect(x[12],current,x[13]-x[12],h)
         current+=h
-    # One totals row per block, for the regular segment if present, else the
-    # summer segment. Summer courses are listed but excluded from the
-    # totals (official: HASSAN AHMED's Spring totals exclude summer).
-    totals_section='regular' if any(c and s=='regular' for c,_,s in chunk) else 'summer'
-    totals_courses=[c for c,_,s in chunk if c and s==totals_section]
+    # One totals row per block, for the combined publication window
+    # (Spring plus its Summer), matching the Excel gazette and the
+    # official LGU gazettes. The window totals come from the same
+    # repeat-aware calculation over all window courses; the cumulative
+    # columns run through the latest term in the window.
+    window_totals=None;cumulative_totals=None;standing=None;pending=[];have_totals=False
+    if calculations:
+        from calculation_policy import display_ratio,CalculationReviewRequired,calculate_academic_values,USER_CONFIRMED_POLICY,standing_comment
+        from fractions import Fraction
+        student_history=calculations.students.get((registration_key(registration),program_key(degree)),[])
+        if window:
+            window_attempts=[c for c in student_history if _in_window(c.term,window)]
+        else:
+            window_attempts=[c for c,_,s in chunk if c]
+        if window_attempts:
+            have_totals=True
+            try:
+                combined=calculate_academic_values(window_attempts,USER_CONFIRMED_POLICY)
+                combined_summary=combined[(registration_key(registration),program_key(degree))]
+                window_totals={'gp':display_ratio(Fraction(combined_summary.total_grade_points)),'ch':_plain_number(combined_summary.total_credit_hours),'sgpa':display_ratio(combined_summary.exact_ratio)}
+            except (CalculationReviewRequired,KeyError):
+                pending.append('GPA REVIEW')
+            try:
+                latest_term=max((c.term for c in window_attempts),key=term_order)
+                cumulative=calculations.summary(registration,degree,latest_term,True)
+                cumulative_totals={'tgp':display_ratio(Fraction(cumulative.total_grade_points)),'tch':_plain_number(cumulative.total_credit_hours),'cgpa':display_ratio(cumulative.exact_ratio)}
+            except CalculationReviewRequired:
+                pending.append('CGPA REVIEW')
+            if not pending and cumulative_totals is not None:
+                standing=standing_comment(cumulative.exact_ratio,standing_cutoff)
     for i in range(8,len(x)-1):
         if i in (9,12):
             continue
         value=''
-        if calculations and totals_courses:
-            from calculation_policy import display_ratio,CalculationReviewRequired
-            term=totals_courses[0].term
-            try:
-                cumulative_column=i==10 or (len(x)==18 and i==13) or (i==15 and profile.get('last_ratio_role','cgpa')=='cgpa')
-                summary=calculations.summary(registration,degree,term,cumulative_column)
-                from fractions import Fraction
-                points=display_ratio(Fraction(summary.total_grade_points))
-                credits=_plain_number(summary.total_credit_hours)
-                vals={8:points,10:points,11:credits}
-                if len(x)==16:vals[13]=display_ratio(summary.exact_ratio)
-                else:
-                    vals[13]=credits
-                    vals[14]=display_ratio(summary.exact_ratio)
-                    if i==15 and profile.get('last_ratio_role','cgpa')=='cgpa':
-                        vals[15]=display_ratio(summary.exact_ratio)
-                value=vals.get(i,'')
-            except CalculationReviewRequired:
-                if i in ((10,13) if len(x)==16 else (10,13,14,15)):value='\u2014'
-        if i==len(x)-2 and calculations and totals_courses:
-            pending=[]
-            for cumulative,label in ((False,'GPA'),(True,'CGPA')):
-                try:calculations.summary(registration,degree,totals_courses[0].term,cumulative)
-                except CalculationReviewRequired:pending.append(label+' REVIEW')
+        if have_totals:
+            if len(x)==16:
+                column_values={8:('gp',window_totals),10:('tgp',cumulative_totals),11:('ch',window_totals),13:('sgpa',window_totals)}
+            else:
+                column_values={8:('gp',window_totals),10:('tgp',cumulative_totals),11:('ch',window_totals),13:('tch',cumulative_totals),14:('sgpa',window_totals),15:('cgpa',cumulative_totals)}
+            if i in column_values:
+                key,totals=column_values[i]
+                value=totals[key] if totals is not None else '\u2014'
+        if i==len(x)-2:
             if pending:
                 value='; '.join(pending)
-            else:
-                # The official gazettes print the standing in COMMENTS
-                # (G.A.ST, or PROBATION below the cutoff). The cutoff is
-                # the operator's probation_cgpa setting, else 2.00.
-                from calculation_policy import standing_comment
-                cumulative=calculations.summary(registration,degree,totals_courses[0].term,True)
-                value=standing_comment(cumulative.exact_ratio, standing_cutoff)
+            elif standing is not None:
+                value=standing
         _cell(pdf,value,x[i],y,x[i+1]-x[i],height,size=6.5)
 
 
@@ -518,7 +534,7 @@ def write_gazette(dataset,rows,path,template_key='computer-science',settings=Non
                 y=page['profile']['body_top']
                 for sr,identity,chunk,height,part in page['blocks']:
                     pdf.start_section(identity[2]+(' (cont.)' if part else ''),level=0)
-                    _block(pdf,sr,identity,chunk,height,part,y,page['profile'],calculations,(settings or {}).get('probation_cgpa'));y+=height
+                    _block(pdf,sr,identity,chunk,height,part,y,page['profile'],calculations,(settings or {}).get('probation_cgpa'),page['group'][2]);y+=height
                 running+=1
             # The fee block closes its own section, with that section's
             # session in the header.

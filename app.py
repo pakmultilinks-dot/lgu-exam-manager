@@ -124,7 +124,7 @@ def enable_trackpad_scroll(scrollable_frame):
     scrollable_frame.bind("<Configure>", lambda e: _bind_recursive(scrollable_frame), add="+")
 
 
-APP_VERSION = 'v4.6.9'
+APP_VERSION = 'v4.6.10'
 
 
 class App(ctk.CTk):

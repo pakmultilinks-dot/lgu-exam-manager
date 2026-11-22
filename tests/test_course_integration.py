@@ -405,7 +405,7 @@ def test_app_title_uses_the_current_version():
     # even after v4.6.2 shipped, so the user could not tell which version
     # he was running. The title now comes from one APP_VERSION constant.
     from app import APP_VERSION
-    assert APP_VERSION == 'v4.6.9'
+    assert APP_VERSION == 'v4.6.10'
 
 
 def test_float_noise_does_not_flip_half_up_rounding(tmp_path):
@@ -711,3 +711,61 @@ def test_tch_header_clears_column_right_border(tmp_path):
     right = next(edges[i + 1] for i in range(len(edges) - 1)
                  if edges[i] <= origin < edges[i + 1])
     assert tch_right <= right - 1.0, f'T.CH ends {tch_right:.2f}, column right border {right:.2f}'
+
+
+def test_pdf_and_excel_spring_plus_summer_totals_match(tmp_path):
+    # Regression (22 Nov 2026, v4.6.10): the PDF gazette excluded the
+    # Summer courses from a Spring block's totals while the Excel
+    # gazette combined them, so PDF and Excel disagreed. MINAHIL
+    # FATIMA (Fa-2020/BS BCH/003, S24) showed GP 55.20 / CH 18 /
+    # SGPA 3.07 / T.GP 307.30 / T.CH 126 / CGPA 2.44 in the PDF and
+    # GP 78.90 / CH 26 / SGPA 3.03 / T.GP 328.00 / T.CH 131 / CGPA
+    # 2.50 in the Excel. The PDF now uses the exact same combined
+    # Spring + Summer window totals as the Excel and the official LGU
+    # gazettes, so both files must agree on every student.
+    import pandas as pd
+    frame = pd.DataFrame([
+        ["FALL 2023", "Fa-2020/BSBCH/001", "STUDENT MINAHIL", 0, "BCHM371", "Biochemistry VII", 3, 75.0, "B", "BS BCH", 9.0, "F23"],
+        ["SPRING 2024", "Fa-2020/BSBCH/001", "STUDENT MINAHIL", 0, "BCHM354", "Immunology", 3, 74.0, "A-", "BS BCH", 11.1, "S24"],
+        ["SPRING 2024", "Fa-2020/BSBCH/001", "STUDENT MINAHIL", 0, "BCHM381", "Current Trends", 3, 60.0, "C", "BS BCH", 6.0, "S24"],
+        ["SUMMER 2024", "Fa-2020/BSBCH/001", "STUDENT MINAHIL", 0, "BCHM344", "Biosafety", 2, 80.0, "B+", "BS BCH", 6.6, "SU24"],
+    ], columns=["SEMESTER", "REGISTRATION NUMBERS", "STUDENT NAME", "AWARD ID", "COURSE CODE", "COURSE NAME", "CRH", "Total Marks", "Grade", "DEGREE TITLE", "GPs", "SHORT SEMESTER"])
+    source = tmp_path / 'spring-summer.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    # Combined S24 + SU24 window: GP 23.70, CH 8, SGPA 2.96.
+    # Cumulative through SU24: T.GP 32.70, T.CH 11, CGPA 2.97.
+    expected = {'gp': '23.70', 'tgp': '32.70', 'ch': '8', 'tch': '11', 'sgpa': '2.96', 'cgpa': '2.97'}
+    excel_path = tmp_path / 'gazette.xlsx'
+    export_report('register', 'excel', ds, ds.courses, str(excel_path),
+                  template_key='allied-health-biology', settings={'gazette_term': 'S24'})
+    from openpyxl import load_workbook
+    ws = load_workbook(excel_path)['Gazette']
+    row = None
+    for r in range(1, ws.max_row + 1):
+        if ws.cell(row=r, column=3).value == 'Fa-2020/BSBCH/001':
+            row = r
+            break
+    assert row is not None, 'student not found in the Excel gazette'
+    excel_totals = {'gp': str(ws.cell(row=row, column=9).value), 'tgp': str(ws.cell(row=row, column=11).value),
+                    'ch': str(ws.cell(row=row, column=12).value), 'tch': str(ws.cell(row=row, column=14).value),
+                    'sgpa': str(ws.cell(row=row, column=15).value), 'cgpa': str(ws.cell(row=row, column=16).value)}
+    assert excel_totals == expected, f'Excel totals {excel_totals} != expected {expected}'
+    pdf_path = tmp_path / 'gazette.pdf'
+    export_report('register', 'pdf', ds, ds.courses, str(pdf_path),
+                  template_key='allied-health-biology', settings={'gazette_term': 'S24'})
+    import fitz
+    from gazette_layout import _profile
+    profile = _profile('allied-health-biology', 'FALL 2020', 'BS BCH', require_cgpa=True)
+    edges = profile['edges']
+    columns = {8: 'gp', 10: 'tgp', 11: 'ch', 13: 'tch', 14: 'sgpa', 15: 'cgpa'}
+    pdf_totals = {}
+    doc = fitz.open(pdf_path)
+    for page in doc:
+        for word in page.get_text('words'):
+            x0, y0, x1, y1, value = word[0], word[1], word[2], word[3], word[4]
+            for col, key in columns.items():
+                if edges[col] <= x0 < edges[col + 1] and value.replace('.', '', 1).isdigit():
+                    pdf_totals[key] = value
+    assert pdf_totals == expected, f'PDF totals {pdf_totals} != expected {expected}'
+    assert pdf_totals == excel_totals, 'PDF and Excel totals must match 100%'

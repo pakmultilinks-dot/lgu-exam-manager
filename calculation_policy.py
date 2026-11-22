@@ -142,7 +142,7 @@ def _clean_number(value):
 
 
 def _values(attempt):
-    if attempt.grade.strip().upper() in ('W', 'I', 'IP', 'P', 'PASS', 'R', ''):
+    if attempt.grade.strip().upper() in ('W', 'I', 'IP', 'P', 'PASS', 'R', 'U', ''):
         raise CalculationReviewRequired('Non-GPA or incomplete grade requires an explicit inclusion rule.')
     try:
         credits, points = (_clean_number(Decimal(str(v).strip())) for v in (attempt.credits, attempt.quality_points))
@@ -175,13 +175,14 @@ def calculate_academic_values(attempts, policy=None):
     for attempt in attempts:
         if not attempt.registration.strip() or not attempt.course_code.strip():
             raise CalculationReviewRequired('Registration and course code are required.')
-        # A non-GPA grade (in progress, incomplete, withdrawn, pass, or
-        # blank) has no grade points and no credits to count, so it is
+        # A non-GPA grade (in progress, incomplete, withdrawn, pass,
+        # unsatisfactory, or blank) has no grade points and no credits to
+        # count, so it is
         # skipped instead of blocking the student's whole GPA. One IP
         # course used to poison the SGPA and every later CGPA (SARA
         # FAIZA F25, SAWERA F24). A student with only non-GPA attempts
         # still gets a review, via 'No attempts in calculation scope'.
-        if attempt.grade.strip().upper() in ('W', 'I', 'IP', 'P', 'PASS', 'R', ''):
+        if attempt.grade.strip().upper() in ('W', 'I', 'IP', 'P', 'PASS', 'R', 'U', ''):
             continue
         key = (registration_key(attempt.registration), program_key(attempt.degree), attempt.course_code.strip().casefold())
         groups.setdefault(key, []).append(attempt)

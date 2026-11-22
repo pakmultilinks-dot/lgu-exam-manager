@@ -22,19 +22,21 @@ def test_current_semester_only_and_earlier_history(tmp_path):
     output=tmp_path/'current.pdf';generate_draft('pdf',ds,ds.courses,str(output),settings=settings)
     with pymupdf.open(output) as doc:
         body='\n'.join(p.get_text() for p in list(doc)[2:])
-        # Official Spring format: the block lists the Spring courses and the
-        # Summer retake (Summer at 0.00 Adj. GP), and the totals row excludes
-        # Summer. So CS100 (Spring) is printed, and the block totals are
-        # 19.80 / 7 / 2.83, not the Summer-only 13.2 / 4 / 3.30. The
-        # cumulative CGPA 3.17 is asserted on the CGPA list below, not here.
+        # Official Spring format (v4.6.10): the block lists the Spring
+        # courses and the Summer retake, and the totals row combines the
+        # Spring + Summer window, matching the Excel gazette. CS101 was
+        # retaken in Summer (B+, 13.2 GP) over Spring (B-, 10.8 GP), so
+        # the repeat rule keeps the Summer attempt and the block totals
+        # are 22.20 / 7 / 3.17, not the Spring-only 19.80 / 7 / 2.83.
+        # The cumulative CGPA 3.17 is asserted on the CGPA list below too.
         assert 'CS101' in body and 'CS100' in body
-        assert '2.83' in body
+        assert '3.17' in body
         assert 'TEST FACULTY' in doc[0].get_text()
         assert 'FEE DEFAULTERS' in doc[-1].get_text()
         from gazette_layout import _profile
         profile=_profile('computer-science',first.admission_session,first.degree,True)
         edges=profile['edges'];top=profile['body_top']
-        for column,expected in {8:'19.80',10:'19.80',11:'7',13:'7',14:'2.83',15:'2.83'}.items():
+        for column,expected in {8:'22.20',10:'22.20',11:'7',13:'7',14:'3.17',15:'3.17'}.items():
             text=doc[2].get_textbox(pymupdf.Rect(edges[column]+1,top,edges[column+1]-1,565))
             assert expected in text,(column,text)
     head,records=table_data('cgpa_list',ds,ds.filtered(term='SU26'))

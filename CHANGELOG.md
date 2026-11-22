@@ -1,3 +1,8 @@
+# v4.6.10 (22 Nov 2026)
+
+- PDF gazette now uses the combined Spring + Summer window totals, matching the Excel gazette and the official LGU gazettes exactly. The PDF used to exclude Summer courses from a Spring block's totals (MINAHIL FATIMA S24 showed GP 55.20 / CH 18 / SGPA 3.07 / T.GP 307.30 / T.CH 126 / CGPA 2.44) while the Excel combined them (GP 78.90 / CH 26 / SGPA 3.03 / T.GP 328.00 / T.CH 131 / CGPA 2.50). Both files now agree 100% on every student; verified on the full BS BCH S24 gazette from FALL 2020.xlsx, 11 of 11 students matching.
+- 'U' (Unsatisfactory) is now skipped like W, I, IP, P, PASS and R, so a U grade no longer poisons a student's SGPA/CGPA (FALL 2020.xlsx rows 41183 and 41192, ASAD and SAGHIR AHMAD, BS SE S25, now compute cleanly with the U course excluded from the totals).
+
 # v4.6.9 (22 Nov 2026)
 
 - Launcher fix: the app no longer installs all packages again in every new version folder. The Python environment now lives in one shared place outside the version folder (LGU-Exam-Manager in the user profile), so packages are installed once and every later version reuses them and opens without installing again. The first run of v4.6.9 installs once into the shared place; after that, no more installs. If the shared environment is ever broken, the launcher removes it and creates it again by itself.

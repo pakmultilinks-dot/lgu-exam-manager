@@ -56,6 +56,15 @@ def test_explicit_letter_scale_and_invalid_values():
     # with graded courses still computes from the graded ones.
     for grade in ('W','I','PASS',''):
         assert calculate_academic_values([row('A','3','0',grade)],policy()) == {}
+    # Regression (22 Nov 2026, v4.6.10): 'U' (Unsatisfactory) is a
+    # non-GPA grade too. A U course used to poison the student's SGPA
+    # and CGPA (FALL 2020.xlsx rows 41183 and 41192, ASAD and SAGHIR
+    # AHMAD, BS SE S25); it is now skipped like W, I and PASS, so a
+    # student with a U course still computes from the graded courses.
+    assert calculate_academic_values([row('A','3','0','U')],policy()) == {}
+    mixed_u = calculate_academic_values([row('A','3','0','U'),row('B','3','9','B')],policy())
+    assert mixed_u['R1','BSCS'].total_credit_hours == Decimal(3)
+    assert mixed_u['R1','BSCS'].total_grade_points == Decimal(9)
     # Mixed: the non-GPA attempt is skipped and the GPA comes from the
     # graded course alone.
     mixed = calculate_academic_values([row('A','3','12','A'), row('B','3','0','IP')], policy())
