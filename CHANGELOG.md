@@ -1,3 +1,52 @@
+# v4.6.6
+
+Full audit fix, every item verified on the real F20 file by rendering the
+actual PDF and Excel output.
+
+PDF gazette. (1) Adj. GP and CH are now blank on first-time courses and
+show only the replaced prior attempt on a repeated course. Before, every
+course printed its own GP and CH into Adj., and a repeat showed the new
+GP instead of the replaced one. AYESHA FIAZ F20 Adj. is now blank, and
+MUHAMMAD AYHAN FAROOQ F22 BTCH311 shows Adj. 0.00 and 3, the replaced
+F20 attempt. (2) Header labels no longer touch: REGISTRATION, Adj.,
+T.CH and SGPA are shrunk until each has clear space. (3) The rotated
+GRADE header now sits fully inside the header band instead of poking
+above the top border. (4) Course codes no longer wrap mid-code:
+BCHM311, BCHM312 and CHEM103 each fit on one line. (5) The NOTE area
+now draws the 3 horizontal note boxes from the official gazettes.
+(6) The closing FEE DEFAULTERS page now uses the same 17-column header
+(T.CH and CGPA) as the body instead of switching back to 15 columns.
+(7) The gold FALL SEMESTER badge is gone from the cover entirely: the
+ribbon is painted out of the cover artwork and the border frame is
+continuous again, and no gold box or period text is drawn. The cover
+keeps the logo, LAHORE GARRISON UNIVERSITY, RESULT GAZETTE, department
+band, campus photo, Prepared by, and footer. The semester stays in the
+gazette body and contents.
+
+Excel gazette. (8) Row 1 now has the lavender fill from the official
+sheet. (9) Header rows 5-6 are vertically merged for SR through GRADE
+and SGPA through COMMENTS. (10) The summary columns (GP, T.GP, CH,
+T.CH, SGPA, Adj. GPA, COMMENTS) are merged vertically across each
+10-row student block, centered, with Adj. GPA and COMMENTS bold.
+(11) The NOTE area is 3 two-row boxes. (12) SEM, COURSE CODE, GRADE
+and the totals are centered, and SR is bold. (13) Page breaks fall
+between student blocks, so no block is split across printed pages.
+(14) A Spring block now shows ONE totals row for the combined
+Spring plus Summer window, not one per sub-term. (15) Gazette Contents
+now counts only the students in the active publication term (F24
+Maths now reports 2, not 15). (16) Course Results now sets the width
+for all 15 columns.
+
+Other reports. (17) Raw float noise (11.100000000000001 and friends)
+no longer leaks into any report: register, term, cohort, degree and
+repeats are clean in Excel, Word and PDF, using the existing clean
+number logic. (18) The Roll-number-wise GPA and CGPA by semester PDF
+headers no longer break mid-word. (19) The pack export no longer
+crashes when every program is skipped; it reports the skip cleanly.
+
+Numbers are unchanged. Full suite green and real-app verification
+passed on F20.xlsx.
+
 # v4.6.5
 
 Look fixes, both verified against the university's own files. (1) The PDF

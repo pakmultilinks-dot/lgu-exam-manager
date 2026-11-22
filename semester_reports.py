@@ -1,8 +1,35 @@
 """Roll-number-wise semester summaries built from complete source history."""
 import re
-from calculation_policy import AcademicIndex,display_ratio,CalculationReviewRequired
+from decimal import Decimal, InvalidOperation
+from calculation_policy import AcademicIndex,display_ratio,CalculationReviewRequired,_clean_number
 from calculation_policy import calculation_attempts
 from academic_identity import program_key,registration_key
+
+def _clean_display_number(value):
+    """Display a source total without binary float storage noise.
+
+    Totals are sums of cleaned values, so they are normally already
+    clean; this is a guard so no raw float tail can ever reach a
+    report. A value within 1e-9 of a clean 2-decimal number is shown
+    as that number with trailing zeros trimmed (11.1, 9.9, 8.1).
+    Non-numeric values pass through unchanged, already clean values
+    are returned exactly as given, and the source workbook is never
+    modified.
+    """
+    text = str(value) if value is not None else ''
+    if not text.strip():
+        return text
+    try:
+        number = Decimal(text.strip())
+    except InvalidOperation:
+        return text
+    if not number.is_finite():
+        return text
+    cleaned = _clean_number(number)
+    if cleaned == number:
+        return text
+    shown = format(cleaned, 'f')
+    return shown.rstrip('0').rstrip('.') if '.' in shown else shown
 
 def roll_order(value):
     return tuple((1,int(part)) if part.isdigit() else (0,part.casefold()) for part in re.split(r'(\d+)',value))
@@ -22,11 +49,11 @@ def semester_summary_table(dataset,rows):
         values=['','','','',''];reviews=[]
         try:
             result=index.summary(registration,degree,term)
-            values[:3]=[str(result.total_credit_hours),str(result.total_grade_points),display_ratio(result.exact_ratio)]
+            values[:3]=[_clean_display_number(result.total_credit_hours),_clean_display_number(result.total_grade_points),display_ratio(result.exact_ratio)]
         except CalculationReviewRequired as exc:reviews.append('GPA: '+str(exc))
         try:
             cumulative=index.summary(registration,degree,term,True)
-            values[3:]=[str(cumulative.total_credit_hours),display_ratio(cumulative.exact_ratio)]
+            values[3:]=[_clean_display_number(cumulative.total_credit_hours),display_ratio(cumulative.exact_ratio)]
         except CalculationReviewRequired as exc:reviews.append('CGPA: '+str(exc))
         output.append([attempts[0].registration,attempts[0].name,attempts[0].degree,', '.join(sorted(semester_numbers)),term,*values,len(subjects),'; '.join(f'{code}: {name}' for code,name in sorted(subjects.items())),'; '.join(reviews)])
     return ['Registration / roll','Student name','Degree','Semester number','Exam term','Semester CH','Semester points','GPA','Cumulative CH','CGPA','Total subjects','Subject names','Review'],output
@@ -52,7 +79,7 @@ def write_gazette_cgpa_summary(pdf,rows,index,body_pages):
         except CalculationReviewRequired:pass
         try:
             cumulative=index.summary(registration,degree,term,True)
-            credits=str(cumulative.total_credit_hours);cgpa=display_ratio(cumulative.exact_ratio)
+            credits=_clean_display_number(cumulative.total_credit_hours);cgpa=display_ratio(cumulative.exact_ratio)
         except CalculationReviewRequired:pass
         for i,value in enumerate((labels[registration],names[registration],term,gpa,credits,cgpa)):
             _cell(pdf,value,edges[i],y,edges[i+1]-edges[i],25,size=8)

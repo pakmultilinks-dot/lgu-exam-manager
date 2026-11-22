@@ -66,7 +66,7 @@ def fee_page_count(pdf,fees,template_key,cohort,degree):
     # without rendering it. Used to number the table of contents before the
     # body pages are drawn.
     from gazette_layout import _profile
-    return len(_fee_chunks(pdf,fees,_profile(template_key,cohort,degree)))
+    return len(_fee_chunks(pdf,fees,_profile(template_key,cohort,degree,require_cgpa=True)))
 
 def write_fee_appendix(pdf,fees,template_key,body_pages,cohort,degree,publication_term=None):
     # Render the fee block for one (cohort, degree) section, at the end of
@@ -75,7 +75,10 @@ def write_fee_appendix(pdf,fees,template_key,body_pages,cohort,degree,publicatio
     # defaulters get no result block (the caller removes them from the
     # body rows before planning).
     from gazette_layout import _profile,_cell,_header
-    profile=_profile(template_key,cohort,degree)
+    # The fee page closes the section, so it uses the same 17-column
+    # CGPA header (T.CH + CGPA) as the body pages, not the 15-column
+    # header the plain profile would give for early cohorts.
+    profile=_profile(template_key,cohort,degree,require_cgpa=True)
     start=profile['edges'][0];end=profile['edges'][-1];width=end-start
     x=profile['edges'];edges=(x[0],x[1],x[2],x[6],x[7],x[-1])
     window=publication_term or (fees[0].term if fees else '')

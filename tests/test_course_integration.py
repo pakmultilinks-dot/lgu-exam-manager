@@ -181,6 +181,25 @@ def test_pack_skips_blocked_program_but_exports_ready_ones(tmp_path):
     assert note.exists() and 'BS SE' in note.read_text()
 
 
+def test_pack_with_every_program_skipped_reports_cleanly(tmp_path):
+    # Regression: export_gazette_pack crashed with ValueError: too many
+    # values to unpack (expected 2) whenever every program in a pack was
+    # skipped, because the skipped entries carry 3 values (program, reason,
+    # fixes) and the error message unpacked only 2. It must report the
+    # blocked program instead of crashing.
+    from course_reports import export_gazette_pack
+    frame = _df()
+    frame.loc[2, 'STUDENT NAME'] = 'MISMATCHED STUDENT'
+    source = tmp_path / 'all-skipped.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    folder = tmp_path / 'pack'
+    with pytest.raises(ValueError, match='No department gazette could be exported'):
+        export_gazette_pack(ds, ds.courses, folder, settings={'gazette_term': 'S26'})
+    note = folder / 'skipped-programs.txt'
+    assert note.exists() and 'BSCS' in note.read_text()
+
+
 def test_batch_respects_term_filters_but_keeps_cumulative_history(dataset,tmp_path,monkeypatch):
     import course_ui
     import threading
@@ -287,18 +306,24 @@ def test_excel_gazette_sheet_matches_official_layout(tmp_path):
     assert 'DEPARTMENT OF' in ws['A3'].value and 'BIOLOGY' in ws['A3'].value
     assert ws['A4'].value == 'SESSION - FALL 2025 - { SEMESTER - SPRING 2026 }'
     assert ws['I5'].value == 'GP' and ws['L5'].value == 'Chr'
-    assert [ws.cell(row=6, column=c).value for c in range(1, 18)] == [
+    # Non-group labels live in row 5 and merge vertically 5-6; row 6
+    # holds only the GP / Chr sub-labels.
+    assert [ws.cell(row=5, column=c).value for c in range(1, 18)] == [
         'SR', 'DEGREE ID', 'REGISTRATION NUMBERS', 'STUDENT NAME', 'SEM',
-        'COURSE CODE', 'COURSE NAME', 'GRADE', 'GP', 'Adj.', 'T.GP', 'CH',
-        'Adj.', 'T.CH', 'SGPA', 'Adj. GPA', 'COMMENTS']
+        'COURSE CODE', 'COURSE NAME', 'GRADE', 'GP', None, None, 'Chr',
+        None, None, 'SGPA', 'Adj. GPA', 'COMMENTS']
+    assert [ws.cell(row=6, column=c).value for c in range(1, 18)] == [
+        None, None, None, None, None, None, None, None, 'GP', 'Adj.',
+        'T.GP', 'CH', 'Adj.', 'T.CH', None, None, None]
     assert ws.print_title_rows is None
     # Identity once, on the first row of the block only.
     assert ws['A7'].value == 1 and ws['D7'].value == 'STUDENT BETA'
     assert ws['A8'].value is None and ws['D8'].value is None
-    # Totals on the last course row (row 8): 12.00 + 12.00 = 24.00, 6 credits.
-    assert ws['I8'].value == '24.00' and ws['K8'].value == '24.00'
-    assert ws['L8'].value == '6' and ws['N8'].value == '6'
-    assert ws['O8'].value == '4.00' and ws['P8'].value == '4.00'
+    # Totals sit at the top of the merged summary block (row 7):
+    # 12.00 + 12.00 = 24.00, 6 credits.
+    assert ws['I7'].value == '24.00' and ws['K7'].value == '24.00'
+    assert ws['L7'].value == '6' and ws['N7'].value == '6'
+    assert ws['O7'].value == '4.00' and ws['P7'].value == '4.00'
     # Block padded to 10 rows with '-' rows; NOTE ( If any ) in the SR column.
     assert ws['F9'].value == '-' and ws['G9'].value == '-' and ws['H9'].value == '-'
     assert ws['A11'].value == 'NOTE ( If any )'
@@ -330,8 +355,8 @@ def test_excel_gazette_sheet_prints_standing_in_comments(tmp_path):
     ws = load_workbook(path)['Gazette']
     # BETA (CGPA 4.00) gets G.A.ST on the totals row; GAMMA (CGPA 0.00,
     # all F) gets PROBATION on its totals row, one 10-row block later.
-    assert ws['Q8'].value == 'G.A.ST'
-    assert ws['Q18'].value == 'PROBATION'
+    assert ws['Q7'].value == 'G.A.ST'
+    assert ws['Q17'].value == 'PROBATION'
     # The READ FIRST sheet states the cutoff that was used.
     first = load_workbook(path)['READ FIRST']
     standing = [row for row in first.iter_rows(values_only=True) if row and row[0] == 'Academic standing']
@@ -380,7 +405,7 @@ def test_app_title_uses_the_current_version():
     # even after v4.6.2 shipped, so the user could not tell which version
     # he was running. The title now comes from one APP_VERSION constant.
     from app import APP_VERSION
-    assert APP_VERSION == 'v4.6.5'
+    assert APP_VERSION == 'v4.6.6'
 
 
 def test_float_noise_does_not_flip_half_up_rounding(tmp_path):
@@ -419,13 +444,14 @@ def test_excel_tgp_tch_are_cumulative_not_semester(tmp_path):
                   template_key='computer-science', settings={'gazette_term': 'S26'})
     from openpyxl import load_workbook
     ws = load_workbook(path)['Gazette']
-    # ALPHA's S26 section: 2 courses, totals on the last course row (row 8).
-    assert ws['I8'].value == '23.10'
-    assert ws['K8'].value == '42.90'
-    assert ws['L8'].value == '6'
-    assert ws['N8'].value == '13'
-    assert ws['O8'].value == '3.85'
-    assert ws['P8'].value == '3.30'
+    # ALPHA's S26 section: 2 courses, totals at the top of the merged
+    # summary block (row 7).
+    assert ws['I7'].value == '23.10'
+    assert ws['K7'].value == '42.90'
+    assert ws['L7'].value == '6'
+    assert ws['N7'].value == '13'
+    assert ws['O7'].value == '3.85'
+    assert ws['P7'].value == '3.30'
 
 
 def test_excel_gazette_shows_only_the_publication_term(tmp_path):
@@ -471,12 +497,14 @@ def test_ip_course_does_not_block_gpa(tmp_path):
     assert display_ratio(summary.exact_ratio) == '4.00'
 
 
-def test_adj_gp_matches_the_exact_attempt_not_the_first(tmp_path):
-    # Regression v4.6.4 (B3): the PDF Adj. GP matched a repeated course by
-    # (course code, term) and returned the first match's points for every
-    # row, so a retaken course showed the first attempt's points. The same
-    # course twice in S26 (A then B) must show 12.00 for the A row and
-    # 9.00 for the B row.
+def test_adj_gp_shows_replaced_prior_attempt(tmp_path):
+    # The official gazettes leave Adj. blank on a first-time course and
+    # fill it only on a repeated course, with the replaced prior
+    # attempt's GP and CH. This supersedes the v4.6.4 test, which
+    # asserted the old wrong rule (every row showing its own points).
+    # The same course twice in S26 (A then B): the A row is first-time
+    # so Adj. is blank, and the B row is a repeat so Adj. shows the
+    # replaced A attempt, 12.00 with 3 CH, not the B row's own 9.00.
     import pandas as pd
     frame = pd.DataFrame([
         ["SPRING 2026", "Fa-2025/BSBCH/001", "STUDENT BETA", 0, "BCHM311", "Biochemistry I", 3, 87.0, "A", "BS BCH", 12.0, "S26"],
@@ -489,8 +517,32 @@ def test_adj_gp_matches_the_exact_attempt_not_the_first(tmp_path):
     from gazette_layout import _adj_values
     calculations = AcademicIndex(calculation_attempts(ds))
     rows = sorted(ds.courses, key=lambda c: c.source_excel_row)
-    assert _adj_values(rows[0], 'regular', calculations, rows[0].registration, rows[0].degree)[0] == '12.00'
-    assert _adj_values(rows[1], 'regular', calculations, rows[1].registration, rows[1].degree)[0] == '9.00'
+    assert _adj_values(rows[0], 'regular', calculations, rows[0].registration, rows[0].degree) == ('', '')
+    assert _adj_values(rows[1], 'regular', calculations, rows[1].registration, rows[1].degree) == ('12.00', '3')
+
+
+def test_adj_gp_blank_for_first_time_course(tmp_path):
+    # Adj. blank rule, cross-term repeat (F20.xlsx case: MUHAMMAD AYHAN
+    # FAROOQ failed BTCH311 at 0.00 in F20 and retook it in F22 for
+    # 6.00). The F20 row is first-time so Adj. is blank, the F22 row
+    # is a repeat so Adj. shows the replaced 0.00 with 3 CH, and a
+    # first-time F22 course is blank too.
+    import pandas as pd
+    frame = pd.DataFrame([
+        ["FALL 2020", "Fa-2020/BSBT/002", "STUDENT AYHAN", 0, "BTCH311", "Biotechnology I", 3, 20.0, "F", "BS BT", 0.0, "F20"],
+        ["FALL 2022", "Fa-2020/BSBT/002", "STUDENT AYHAN", 0, "BTCH311", "Biotechnology I", 3, 60.0, "C", "BS BT", 6.0, "F22"],
+        ["FALL 2022", "Fa-2020/BSBT/002", "STUDENT AYHAN", 0, "BTCH341", "Biotechnology III", 3, 75.0, "B", "BS BT", 9.0, "F22"],
+    ], columns=["SEMESTER", "REGISTRATION NUMBERS", "STUDENT NAME", "AWARD ID", "COURSE CODE", "COURSE NAME", "CRH", "Total Marks", "Grade", "DEGREE TITLE", "GPs", "SHORT SEMESTER"])
+    source = tmp_path / 'adj-blank.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    from calculation_policy import AcademicIndex, calculation_attempts
+    from gazette_layout import _adj_values
+    calculations = AcademicIndex(calculation_attempts(ds))
+    rows = sorted(ds.courses, key=lambda c: c.source_excel_row)
+    assert _adj_values(rows[0], 'regular', calculations, rows[0].registration, rows[0].degree) == ('', '')
+    assert _adj_values(rows[1], 'regular', calculations, rows[1].registration, rows[1].degree) == ('0.00', '3')
+    assert _adj_values(rows[2], 'regular', calculations, rows[2].registration, rows[2].degree) == ('', '')
 
 
 def test_default_term_counts_spring_cycle_together(tmp_path):
@@ -556,3 +608,31 @@ def test_dashboard_metric_click_stays_on_dashboard(dataset, monkeypatch):
         for job in app.tk.call('after', 'info'):
             app.after_cancel(job)
         app.destroy()
+def test_gazette_contents_counts_only_active_term_students(tmp_path):
+    # Regression (22 Nov 2026): Gazette Contents counted every student in
+    # the cohort (len(reg_groups) across all terms), so F24 Maths reported
+    # 15 students when only 2 had results in F24. It must count only the
+    # students printed in the active publication term.
+    import pandas as pd
+    frame = pd.DataFrame([
+        ["FALL 2025", "Fa-2025/BSCS/001", "STUDENT ALPHA", 0, "CS100", "Course One", 3, 74.5, "B", "BSCS", 9.0, "F25"],
+        ["FALL 2025", "Fa-2025/BSCS/001", "STUDENT ALPHA", 0, "CS101", "Course Two", 4, 55.0, "B-", "BSCS", 10.8, "F25"],
+        ["SPRING 2026", "Fa-2025/BSCS/001", "STUDENT ALPHA", 0, "CS102", "Course Three", 3, 90.0, "A", "BSCS", 12.0, "S26"],
+        ["SPRING 2026", "Fa-2025/BSCS/001", "STUDENT ALPHA", 0, "CS103", "Course Four", 3, 85.0, "A-", "BSCS", 11.1, "S26"],
+        ["SPRING 2026", "Fa-2025/BSCS/002", "STUDENT BETA", 0, "CS102", "Course Three", 3, 90.0, "A", "BSCS", 12.0, "S26"],
+        ["SPRING 2026", "Fa-2025/BSCS/002", "STUDENT BETA", 0, "CS103", "Course Four", 3, 85.0, "A-", "BSCS", 11.1, "S26"],
+        ["FALL 2025", "Fa-2025/BSCS/003", "STUDENT GAMMA", 0, "CS100", "Course One", 3, 74.5, "B", "BSCS", 9.0, "F25"],
+        ["FALL 2025", "Fa-2025/BSCS/003", "STUDENT GAMMA", 0, "CS101", "Course Two", 4, 55.0, "B-", "BSCS", 10.8, "F25"],
+        ["FALL 2025", "Fa-2025/BSCS/004", "STUDENT DELTA", 0, "CS100", "Course One", 3, 74.5, "B", "BSCS", 9.0, "F25"],
+        ["FALL 2025", "Fa-2025/BSCS/004", "STUDENT DELTA", 0, "CS101", "Course Two", 4, 55.0, "B-", "BSCS", 10.8, "F25"],
+    ], columns=["SEMESTER", "REGISTRATION NUMBERS", "STUDENT NAME", "AWARD ID", "COURSE CODE", "COURSE NAME", "CRH", "Total Marks", "Grade", "DEGREE TITLE", "GPs", "SHORT SEMESTER"])
+    source = tmp_path / 'contents-count.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    path = tmp_path / 'gazette.xlsx'
+    export_report('register', 'excel', ds, ds.courses, str(path),
+                  template_key='computer-science', settings={'gazette_term': 'S26'})
+    from openpyxl import load_workbook
+    contents = load_workbook(path)['Gazette Contents']
+    students = [row[6] for row in contents.iter_rows(min_row=4, values_only=True) if row[0] is not None]
+    assert students == [2]

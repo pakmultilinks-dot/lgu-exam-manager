@@ -1,8 +1,10 @@
 from academic_identity import student_count,registration_key,program_key
 """Canonical course report routes: no academic policy is inferred."""
 from collections import Counter, defaultdict
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from academic_reports import generate_draft, _excel_safe
+from calculation_policy import _clean_number
 
 ROUTES = {
  'register': 'Result gazette',
@@ -17,6 +19,31 @@ ROUTES = {
  'mapping': 'Import mapping and provenance',
  'cgpa_list': 'Roll-number-wise GPA / CGPA by semester',
 }
+
+def _clean_display_number(value):
+    """Display a source number without binary float storage noise.
+
+    A value the university meant as 11.10 can arrive from the workbook
+    as 11.100000000000001; _clean_number recovers the intended 2-decimal
+    value, and trailing zeros are then trimmed the way
+    academic_reports._display_source_number trims them (11.1, 9.9, 8.1).
+    Non-numeric values pass through unchanged, already clean values are
+    returned exactly as given, and the source workbook is never modified.
+    """
+    text = str(value) if value is not None else ''
+    if not text.strip():
+        return text
+    try:
+        number = Decimal(text.strip())
+    except InvalidOperation:
+        return text
+    if not number.is_finite():
+        return text
+    cleaned = _clean_number(number)
+    if cleaned == number:
+        return text
+    shown = format(cleaned, 'f')
+    return shown.rstrip('0').rstrip('.') if '.' in shown else shown
 
 def _publication_block_reason(dataset, rows, errors):
     from collections import Counter
@@ -121,7 +148,7 @@ def table_data(key, ds, rows):
     if not rows:
         return ['Finding'], [['No repeated course attempts in this selection.']]
     order={'term':lambda c:(c.term,c.registration,c.course_code), 'cohort':lambda c:(c.admission_session,c.registration,c.term), 'degree':lambda c:(c.degree,c.registration,c.term), 'department':lambda c:(c.department,c.registration,c.term)}.get(key,lambda c:(c.registration,c.term,c.course_code))
-    return ['Registration','Student','Term','Degree','Course code','Course','CH','Grade','Source GP','Sheet / row'], [[c.registration,c.name,c.term,c.degree,c.course_code,c.course_name,c.credits,c.grade,c.quality_points,f'{c.source_file} / {c.source_sheet} / {c.source_excel_row}'] for c in sorted(rows,key=order)]
+    return ['Registration','Student','Term','Degree','Course code','Course','CH','Grade','Source GP','Sheet / row'], [[c.registration,c.name,c.term,c.degree,c.course_code,c.course_name,c.credits,c.grade,_clean_display_number(c.quality_points),f'{c.source_file} / {c.source_sheet} / {c.source_excel_row}'] for c in sorted(rows,key=order)]
 
 def _terms(rows):
     out=defaultdict(list)
@@ -216,7 +243,7 @@ def export_gazette_pack(ds, rows, folder, *, settings=None):
     written, skipped = _export_pack_for_term(ds, rows, folder, settings=settings)
     if not written:
         if skipped:
-            raise ValueError('No department gazette could be exported: ' + '; '.join(f'{program}: {reason}' for program,reason in skipped))
+            raise ValueError('No department gazette could be exported: ' + '; '.join(f'{program}: {reason}' for program,reason,_ in skipped))
         raise ValueError('No department gazette could be exported.')
     return written
 
@@ -321,7 +348,7 @@ def _write_report(key, fmt, ds, rows, path, template_key="computer-science",sett
                 self.set_y(-12); self.set_font('LGU','',8); self.cell(0,5,f'DRAFT / NOT FOR PUBLICATION | Page {self.page_no()}',align='C')
         p=PDF('L'); from pdf_fonts import add_fonts; add_fonts(p); p.set_auto_page_break(True,16); p.add_page(); p.set_font('LGU','',8); p.multi_cell(0,5,note,new_x='LMARGIN',new_y='NEXT')
         safe=lambda v:str(v)
-        widths=[31,28,17,12,14,15,15,12,16,12,12,130,36] if key=='cgpa_list' else [36,34,12,15,22,78,10,12,22,36] if len(head)==10 else None
+        widths=[30,24,17,20,16,20,22,12,23,13,20,64,16] if key=='cgpa_list' else [36,34,12,15,22,78,10,12,22,36] if len(head)==10 else None
         with p.table(line_height=4, text_align='LEFT',first_row_as_headings=True, col_widths=widths) as t:
             for vals in [head]+data:
                 r=t.row()

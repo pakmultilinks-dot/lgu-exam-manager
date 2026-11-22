@@ -132,46 +132,40 @@ def _plain_number(value):
     return format(number.normalize(),'f')
 
 def _adj_values(course,section,calculations,registration,degree):
-    # Per-course Adj. GP / Adj. CH for the gazette body. Regular course:
-    # Adj. GP is the course grade points (rate x credits), Adj. CH the
-    # credits. Summer course inside a Spring block: Adj. GP 0.00, Adj. CH
-    # the credits, the pattern observed in the official PDFs (KHURAM
-    # SHAHZAD's summer-only block shows 0.00 per summer course while the
-    # totals row still sums the summer points). The deeper meaning of the
-    # 0.00 is not settled from the PDFs alone; the observed pattern is
-    # followed here and flagged in the fix report.
-    credits=_plain_number(course.credits)
-    if section=='summer':
-        return '0.00',credits
-    if calculations is not None:
-        from calculation_policy import display_ratio
-        from decimal import Decimal,InvalidOperation
-        from fractions import Fraction
-        student_attempts=calculations.students.get((registration_key(registration),program_key(degree)),[])
-        # Match this exact source row first. A course repeated in one term
-        # can carry different points per attempt, and the old code returned
-        # the first (code, term) match for every row, so a later attempt
-        # showed the first attempt's points. Fall back to code+term+grade,
-        # then code+term, so a row never shows another attempt's points.
-        code=course.course_code.strip().casefold()
-        match=None
-        for attempt in student_attempts:
-            if attempt.source_excel_row==course.source_excel_row and attempt.course_code.strip().casefold()==code:
-                match=attempt;break
-        if match is None:
-            for attempt in student_attempts:
-                if attempt.course_code.strip().casefold()==code and attempt.term.upper()==course.term.upper() and attempt.grade.strip().upper()==course.grade.strip().upper():
-                    match=attempt;break
-        if match is None:
-            for attempt in student_attempts:
-                if attempt.course_code.strip().casefold()==code and attempt.term.upper()==course.term.upper():
-                    match=attempt;break
-        if match is not None:
-            try:points=Decimal(str(match.quality_points).strip())
-            except (InvalidOperation,AttributeError):return '-',credits
-            if not points.is_finite():return '-',credits
-            return display_ratio(Fraction(points)),credits
-    return '-',credits
+    # Per-course Adj. GP / Adj. CH for the gazette body. The official
+    # gazettes leave Adj. blank on a first-time course and fill it only
+    # on a repeated course, with the replaced prior attempt's GP and CH
+    # (SOFTWARE-ENGINEERING.pdf: MATH114 and SE220 show 0.00 with 3 and
+    # 4 CH, the failed attempts they replace, while first-time SE310
+    # shows nothing; COMPUTER-SCIENCE.pdf: retaken STAT114 shows 0.00
+    # with 3 CH). The prior attempt is the latest earlier attempt for
+    # the same student and course code: an earlier term, or an earlier
+    # row in the same term. Summer courses follow the same rule; the
+    # 0.00 seen on summer rows is the replaced attempt, not a summer
+    # rule. Without the full history there is nothing to show, so Adj.
+    # is blank.
+    if calculations is None:
+        return '',''
+    from calculation_policy import display_ratio
+    from decimal import Decimal,InvalidOperation
+    from fractions import Fraction
+    student_attempts=calculations.students.get((registration_key(registration),program_key(degree)),[])
+    code=course.course_code.strip().casefold()
+    current=(term_order(course.term),course.source_excel_row)
+    prior=None
+    for attempt in student_attempts:
+        if attempt.course_code.strip().casefold()!=code:
+            continue
+        key=(term_order(attempt.term),attempt.source_excel_row)
+        if key<current and (prior is None or key>prior[0]):
+            prior=(key,attempt)
+    if prior is None:
+        return '',''
+    attempt=prior[1]
+    try:points=Decimal(str(attempt.quality_points).strip())
+    except (InvalidOperation,AttributeError):return '',''
+    if not points.is_finite():return '',''
+    return display_ratio(Fraction(points)),_plain_number(attempt.credits)
 
 
 def _plan(pdf,rows,key,require_cgpa=False,publication_term=None):
@@ -245,23 +239,10 @@ def _cover(pdf,rows,key,settings=None,publication_term=None):
     asset=Path(__file__).with_name('gazette_assets')/design['asset']
     if asset.is_file():pdf.image(str(asset),0,0,612,792)
     else:raise ValueError('Gazette cover artwork missing: '+key)
-    # The cover names the publication semester only, as on the official
-    # gazettes ("SPRING SEMESTER 2024"). The old label mixed the full
-    # history ("REGULAR & SUMMER 2025-2026" for a Fall 2026 gazette).
-    bx,by,bw,bh=design['period_box']
-    pdf.set_fill_color(200,189,135);pdf.rect(bx,by,bw,bh,'F')
-    period=publication_term
-    if period is None:
-        terms=sorted({c.term for c in rows},key=term_order)
-        period=terms[-1] if terms else ''
-    full=_full_term(period) if period else ''
-    label=''
-    if full:
-        parts=full.split(' ')
-        label=f"{parts[0]}\nSEMESTER\n{parts[1]}" if len(parts)==2 else full
-    label=settings.get('cover_period','').strip() or label
+    # No badge on the cover: the gold semester badge was painted out of
+    # the cover artwork, and no period rect or period text is drawn
+    # here. The semester stays in the gazette body and contents.
     pdf.set_text_color(0,0,0)
-    _text(pdf,label,bx+2,by+7,bw-4,bh-19,size=20,style='B',family='Title')
     headers={s['text'].strip() for cohort,degree in {(c.admission_session,c.degree) for c in rows} for s in _profile(key,cohort,degree)['header'] if 'DEPARTMENT OF' in s['text']}
     department=next(iter(headers)) if len(headers)==1 else key.replace('-',' ').upper()+' DEPARTMENT'
     department=settings.get('cover_department','').strip() or department
@@ -313,23 +294,36 @@ def _header(pdf,page,number):
     profile=page['profile'];cohort,degree,window=page['group']
     pdf.set_text_color(0,0,0);pdf.set_fill_color(0,0,0)
     for x0,y0,x1,y1 in profile['header_rects']:pdf.rect(x0,y0,x1-x0,y1-y0,'F')
-    # Shrink same-baseline column labels that would run into the next label.
-    # The reference layouts were drawn for Calibri; the bundled DejaVu
+    # Shrink column labels that would run into the next label. The
+    # reference layouts were drawn for Calibri; the bundled DejaVu
     # fallback is wider, so STUDENT NAME ran into SEM and printed as one
-    # joined word. Centered, rotated and session labels are left alone.
+    # joined word. Labels a few points above the next label still
+    # collide (REGISTRATION into STUDENT NAME), so near-baseline labels
+    # count too, and 3pt of clear gap is required between labels.
+    # Centered and session labels are left alone. GRADE is rotated, so
+    # it is shrunk separately until it fits inside the header band.
     items=list(profile['header'])
     sizes={}
+    # Top black border of the header band; the rotated GRADE text runs
+    # upward from its origin and must end below this line.
+    top_border=min((rect[1] for rect in profile['header_rects']),default=0)
     for index,item in enumerate(items):
         family,style=_source_font(item['font']);size=item['size']
         text=item['text'];x,y=item['origin']
-        if item.get('center') or text.strip()=='GRADE' or 'SESSION' in text:
+        if text.strip()=='GRADE':
+            while size>5.0:
+                pdf.set_font(family,style,round(size,2))
+                if y-pdf.get_string_width(text)>=top_border+0.5:break
+                size-=0.3
+            sizes[index]=round(size,2);continue
+        if item.get('center') or 'SESSION' in text:
             sizes[index]=size;continue
         while True:
             pdf.set_font(family,style,round(size,2))
-            following=[other for other in items if other is not item and not other.get('center') and other['text'].strip()!='GRADE' and 'SESSION' not in other['text'] and abs(other['origin'][1]-y)<3.0 and other['origin'][0]>x]
+            following=[other for other in items if other is not item and not other.get('center') and other['text'].strip()!='GRADE' and 'SESSION' not in other['text'] and abs(other['origin'][1]-y)<8.0 and other['origin'][0]>x]
             if not following:break
             gap=min(other['origin'][0] for other in following)-x
-            if pdf.get_string_width(text)<=gap-1 or size<=5.0:break
+            if pdf.get_string_width(text)<=gap-3 or size<=5.0:break
             size-=0.3
         sizes[index]=round(size,2)
     for index,item in enumerate(items):
@@ -354,6 +348,14 @@ def _block(pdf,sr,identity,chunk,height,part,y,profile,calculations=None,standin
     if height>identity_h:
         note_y=y+identity_h;note_h=height-identity_h
         pdf.rect(x[0],note_y,x[1]-x[0],note_h);pdf.rect(x[1],note_y,x[4]-x[1],note_h)
+        # The official gazettes divide the note area into 3 horizontal
+        # boxes with lines two and four rows below the note top, across
+        # the note text area (x[1] to x[4]); the course rows already
+        # draw their own bottom lines to the right of x[4].
+        for offset in (2,4):
+            line_y=note_y+offset*row_h
+            if line_y<note_y+note_h:
+                pdf.line(x[1],line_y,x[4],line_y)
         center_x=(x[0]+x[1])/2;center_y=note_y+note_h/2
         pdf.set_font('Body','B',7.32)
         label='NOTE ( If any )'
@@ -367,7 +369,7 @@ def _block(pdf,sr,identity,chunk,height,part,y,profile,calculations=None,standin
     current=y
     for c,h,section in chunk:
         values={4:c.term.upper() if c else '',5:c.course_code if c else '-',6:c.course_name.upper() if c else '-',7:c.grade if c else '-'}
-        for i,value in values.items():_cell(pdf,value,x[i],current,x[i+1]-x[i],h,size=6.0 if i==4 else 7.32,align='L' if i==6 else 'C')
+        for i,value in values.items():_cell(pdf,value,x[i],current,x[i+1]-x[i],h,size=6.0 if i in (4,5) else 7.32,align='L' if i==6 else 'C')
         if c is not None:
             adj_gp,adj_ch=_adj_values(c,section,calculations,registration,degree)
             _cell(pdf,adj_gp,x[9],current,x[10]-x[9],h,size=6.5)

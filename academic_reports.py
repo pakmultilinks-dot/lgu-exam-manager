@@ -12,7 +12,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from academic_engine import CourseAttempt, ResultDataset
-from calculation_policy import calculation_attempts
+from calculation_policy import _clean_number, calculation_attempts
 from academic_identity import program_key,registration_key,student_count
 
 
@@ -31,7 +31,8 @@ def _group(courses: list[CourseAttempt]):
 
 def _row(course: CourseAttempt):
     return (course.term, course.course_code, course.course_name,
-            course.credits, course.marks, course.grade, course.quality_points)
+            course.credits, course.marks, course.grade,
+            _display_source_number(course.quality_points))
 
 
 def _san(v):
@@ -59,6 +60,22 @@ def _display_source_number(value):
     return s
 
 
+def _clean_decimal_text(value):
+    """Clean float storage noise from a derived numeric string.
+
+    Unlike _display_source_number, this keeps the exact decimals of a
+    clean value (3.00 stays 3.00, 9.00 stays 9.00); only a value within
+    1e-9 of a clean 2-decimal number is normalised (11.100000000000001
+    becomes 11.10). Used for the applied rate and calculated grade
+    points in the Point Derivation Audit, whose exact 2-decimal form is
+    the recorded value. Non-numeric text passes through unchanged.
+    """
+    try:
+        return str(_clean_number(Decimal(str(value).strip())))
+    except (InvalidOperation, ValueError):
+        return value
+
+
 def _excel_safe(value):
     """Do not turn source student text into spreadsheet formulas on export."""
     v = str(value) if value is not None else ""
@@ -84,10 +101,12 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
     from fractions import Fraction
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.pagebreak import Break
     from academic_identity import program_key
     from calculation_policy import (AcademicIndex, CalculationReviewRequired,
-                                    calculation_attempts, display_ratio,
-                                    standing_comment)
+                                    calculate_academic_values, calculation_attempts,
+                                    display_ratio, standing_comment,
+                                    USER_CONFIRMED_POLICY)
     from fee_register import selected_defaulters
     from gazette_layout import _cohort_short, _full_term, _plain_number, _profile, _window, term_order
     from gazette_options import current_term, resolve_template_groups
@@ -139,6 +158,7 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
     title = worksheet.cell(1, 1, 'LAHORE GARRISON UNIVERSITY')
     title.font = Font(name='Times New Roman', size=24, bold=True, color=navy)
     title.alignment = Alignment(horizontal='center', vertical='center')
+    title.fill = PatternFill('solid', fgColor='E0D0EA')
     worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=width)
     worksheet.row_dimensions[1].height = 34
     worksheet.cell(2, 1, 'RESULT STATEMENT')
@@ -158,13 +178,19 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
     worksheet.row_dimensions[4].height = 20
 
     # Group header row (GP over its 3 columns, Chr over its 3) and label row.
+    # Columns without a group header span both header rows, like the
+    # official sheet; only the GP and Chr sub-columns sit on row 6.
     for start, end, label in ((9, 11, 'GP'), (12, 14, 'Chr')):
         worksheet.merge_cells(start_row=5, start_column=start, end_row=5, end_column=end)
         cell = worksheet.cell(5, start, label)
         cell.font = Font(name='Arial', size=9, bold=True)
         cell.alignment = Alignment(horizontal='center', vertical='center')
     for column, value in enumerate(columns, 1):
-        cell = worksheet.cell(6, column, value)
+        if column in (9, 10, 11, 12, 13, 14):
+            cell = worksheet.cell(6, column, value)
+        else:
+            cell = worksheet.cell(5, column, value)
+            worksheet.merge_cells(start_row=5, start_column=column, end_row=6, end_column=column)
         cell.font = Font(name='Arial', size=9, bold=True, color='000000')
         cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True,
                                    text_rotation=90 if value == 'GRADE' else 0)
@@ -192,6 +218,7 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
             for course in cohort_rows:
                 reg_groups[registration_key(course.registration)].append(course)
             start_index = len(gazette_rows)
+            section_students = 0
             # The gazette is for one publication term only, like the PDF:
             # a student's full history is not printed here. Summer folds
             # into its Spring (SUyy -> Syy), so an F21 gazette excludes
@@ -206,6 +233,7 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
                 if not attempts:
                     continue
                 serial += 1
+                section_students += 1
                 student_name = attempts[0].name
                 registration = attempts[0].registration
                 terms = defaultdict(list)
@@ -215,31 +243,7 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
                 for attempt_term, term_courses in sorted(terms.items(),
                                                         key=lambda item: term_order(item[0])):
                     term_courses.sort(key=lambda c: (c.source_excel_row, c.course_code.casefold()))
-                    totals = None
-                    comment = ''
-                    try:
-                        semester = calculations.summary(registration, degree, attempt_term)
-                        cumulative = calculations.summary(registration, degree, attempt_term, True)
-                        totals = {
-                            'gp': display_ratio(Fraction(semester.total_grade_points)),
-                            'ch': _plain_number(semester.total_credit_hours),
-                            'tgp': display_ratio(Fraction(cumulative.total_grade_points)),
-                            'tch': _plain_number(cumulative.total_credit_hours),
-                            'sgpa': display_ratio(semester.exact_ratio),
-                            'adj_gpa': display_ratio(cumulative.exact_ratio),
-                        }
-                        # The official gazettes print the standing in
-                        # COMMENTS (G.A.ST, or PROBATION below the cutoff).
-                        # The cutoff is the operator's probation_cgpa
-                        # setting, else 2.00; it is stated on the READ
-                        # FIRST sheet so a different line is a settings
-                        # change, not a guess.
-                        cutoff = (settings or {}).get('probation_cgpa')
-                        comment = standing_comment(cumulative.exact_ratio, cutoff)
-                    except CalculationReviewRequired as error:
-                        totals = {'gp': 'REVIEW', 'ch': 'REVIEW', 'tgp': 'REVIEW', 'tch': 'REVIEW', 'sgpa': 'REVIEW', 'adj_gpa': 'REVIEW'}
-                        comment = f'GPA/CGPA review: {error}'
-                    for course_index, course in enumerate(term_courses):
+                    for course in term_courses:
                         values = [''] * width
                         if len(gazette_rows) == block_start:
                             values[0] = serial
@@ -250,18 +254,54 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
                         values[5] = course.course_code
                         values[6] = course.course_name.upper()
                         values[7] = course.grade
-                        if course_index == len(term_courses) - 1 and totals is not None:
-                            values[8] = totals['gp']
-                            values[10] = totals['tgp']
-                            values[11] = totals['ch']
-                            values[13] = totals['tch']
-                            values[14] = totals['sgpa']
-                            values[15] = totals['adj_gpa']
-                            values[16] = comment
                         gazette_rows.append([
                             _excel_safe(value) if isinstance(value, str) else value
                             for value in values
                         ])
+                # One totals row per student block, for the combined
+                # publication window (Spring plus its Summer), never one
+                # per sub-term: a Spring block used to print a second
+                # totals row for the Summer courses inside the same block.
+                # The window totals come from the same repeat-aware
+                # calculation as a single-term summary; the cumulative
+                # columns run through the latest term in the window.
+                try:
+                    window_attempts = [c for c in calculations.students.get(
+                        (registration_key(registration), program_key(degree)), [])
+                        if _window(c.term, available_terms) == publication_window]
+                    combined = calculate_academic_values(
+                        window_attempts, USER_CONFIRMED_POLICY)
+                    combined_summary = combined[(registration_key(registration),
+                                                 program_key(degree))]
+                    latest_term = max(terms, key=term_order)
+                    cumulative = calculations.summary(registration, degree, latest_term, True)
+                    totals = {
+                        'gp': display_ratio(Fraction(combined_summary.total_grade_points)),
+                        'ch': _plain_number(combined_summary.total_credit_hours),
+                        'tgp': display_ratio(Fraction(cumulative.total_grade_points)),
+                        'tch': _plain_number(cumulative.total_credit_hours),
+                        'sgpa': display_ratio(combined_summary.exact_ratio),
+                        'adj_gpa': display_ratio(cumulative.exact_ratio),
+                    }
+                    # The official gazettes print the standing in
+                    # COMMENTS (G.A.ST, or PROBATION below the cutoff).
+                    # The cutoff is the operator's probation_cgpa
+                    # setting, else 2.00; it is stated on the READ
+                    # FIRST sheet so a different line is a settings
+                    # change, not a guess.
+                    cutoff = (settings or {}).get('probation_cgpa')
+                    comment = standing_comment(cumulative.exact_ratio, cutoff)
+                except (CalculationReviewRequired, KeyError) as error:
+                    totals = {'gp': 'REVIEW', 'ch': 'REVIEW', 'tgp': 'REVIEW', 'tch': 'REVIEW', 'sgpa': 'REVIEW', 'adj_gpa': 'REVIEW'}
+                    comment = f'GPA/CGPA review: {error}'
+                first_row = gazette_rows[block_start]
+                first_row[8] = totals['gp']
+                first_row[10] = totals['tgp']
+                first_row[11] = totals['ch']
+                first_row[13] = totals['tch']
+                first_row[14] = totals['sgpa']
+                first_row[15] = totals['adj_gpa']
+                first_row[16] = _excel_safe(comment)
                 # Pad the block to 10 rows with '-' rows, like the official sheet.
                 while len(gazette_rows) - block_start < 10:
                     gazette_rows.append(['', '', '', '', '', '-', '-', '-', '', '', '', '', '', '', '', '', ''])
@@ -269,32 +309,62 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
             first_result_row = 7 + start_index
             contents.append((key.replace('-', ' ').title(), cohort, degree,
                              first_result_row, len(gazette_rows) - start_index,
-                             len(reg_groups)))
+                             section_students))
 
     for row in gazette_rows:
         worksheet.append(row)
     result_end_row = 6 + len(gazette_rows)
 
     # Identity spans the first 4 rows of each block; NOTE ( If any ) fills
-    # the SR column below it, rotated, as in the official sheet.
+    # the SR column below it, rotated, as in the official sheet. The
+    # summary columns (GP, T.GP, CH, T.CH, SGPA, Adj. GPA, COMMENTS)
+    # merge vertically across the whole block, like the official sheet,
+    # with the totals centered; the per-course Adj. columns stay per-row.
+    # The NOTE area beside it (columns B:D) is 3 two-row boxes.
+    summary_columns = (9, 11, 12, 14, 15, 16, 17)
     for start_index, row_count in blocks:
         first = 7 + start_index
         for col in range(1, 5):
             worksheet.merge_cells(start_row=first, start_column=col, end_row=first + 3, end_column=col)
             worksheet.cell(row=first, column=col).alignment = Alignment(
                 horizontal='center', vertical='center', wrap_text=True)
+        worksheet.cell(row=first, column=1).font = Font(bold=True)
+        for col in summary_columns:
+            worksheet.merge_cells(start_row=first, start_column=col,
+                                  end_row=first + row_count - 1, end_column=col)
+            summary_cell = worksheet.cell(row=first, column=col)
+            summary_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            if col in (16, 17):
+                summary_cell.font = Font(bold=True)
         if row_count > 4:
             worksheet.merge_cells(start_row=first + 4, start_column=1,
                                   end_row=first + row_count - 1, end_column=1)
             note = worksheet.cell(row=first + 4, column=1, value='NOTE ( If any )')
             note.font = Font(name='Arial', size=9, bold=True)
             note.alignment = Alignment(horizontal='center', vertical='center', text_rotation=90)
+            for offset in (0, 2, 4):
+                if row_count > 4 + offset + 1:
+                    worksheet.merge_cells(start_row=first + 4 + offset, start_column=2,
+                                          end_row=first + 5 + offset, end_column=4)
 
     # Plain black grid over the whole table (no Excel Table: it cannot hold
     # merged cells, and the official sheet is a plain bordered grid).
     for r in range(5, result_end_row + 1):
         for c in range(1, width + 1):
             worksheet.cell(row=r, column=c).border = cell_border
+
+    # SEM, COURSE CODE and GRADE print centered, like the official sheet;
+    # the summary totals are centered by the block merge above.
+    for r in range(7, result_end_row + 1):
+        for c in (5, 6, 8):
+            worksheet.cell(row=r, column=c).alignment = Alignment(
+                horizontal='center', vertical='center')
+
+    # Two student blocks per printed page, like the official gazette, with
+    # every break between blocks so no block is ever split across pages.
+    for index, (start_index, row_count) in enumerate(blocks):
+        if (index + 1) % 2 == 0 and index + 1 < len(blocks):
+            worksheet.row_breaks.append(Break(id=7 + start_index + row_count - 1))
 
     current_row = result_end_row + 2
     fee_title = worksheet.cell(current_row, 1, 'FEE DEFAULTERS')
@@ -464,7 +534,8 @@ def write_draft_excel(dataset: ResultDataset, courses: list[CourseAttempt], path
     for c in sorted(courses, key=lambda x: (x.admission_session, x.degree, x.registration, x.term, x.course_code)):
         vals = [c.admission_session, c.degree, c.registration, c.name, c.semester,
                 c.term, c.course_code, c.course_name, c.credits, c.marks, c.grade,
-                c.quality_points, c.source_sheet, c.source_excel_row, c.grade_point_rate]
+                _display_source_number(c.quality_points), c.source_sheet,
+                c.source_excel_row, _display_source_number(c.grade_point_rate)]
         data.append([_excel_safe(x) if isinstance(x, str) else x for x in vals])
     data.freeze_panes = "E2"
     data.auto_filter.ref = data.dimensions
@@ -473,7 +544,7 @@ def write_draft_excel(dataset: ResultDataset, courses: list[CourseAttempt], path
             cell.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
             cell.fill = PatternFill("solid", fgColor="0D542B")
             cell.alignment = Alignment(wrap_text=True, vertical="center")
-    for idx, width in enumerate((21, 19, 23, 28, 19, 14, 17, 49, 15, 15, 10, 15, 18, 12), 1):
+    for idx, width in enumerate((21, 19, 23, 28, 19, 14, 17, 49, 15, 15, 10, 15, 18, 12, 22), 1):
         data.column_dimensions[get_column_letter(idx)].width = width
     data.row_dimensions[1].height = 28
     from calculation_policy import AcademicIndex,display_ratio,CalculationReviewRequired,USER_CONFIRMED_POLICY
@@ -494,7 +565,7 @@ def write_draft_excel(dataset: ResultDataset, courses: list[CourseAttempt], path
                 for decision in summary_value.decisions:
                     for status,items in [('KEPT',(decision.selected,)),('EXCLUDED',decision.excluded)]:
                         for c in items:
-                            audit.append([_excel_safe(v) for v in [reg,degree,term,scope,c.course_code,status,c.term,c.credits,c.quality_points,c.source_file,c.source_sheet,str(c.source_excel_row)]])
+                            audit.append([_excel_safe(v) for v in [reg,degree,term,scope,c.course_code,status,c.term,c.credits,_display_source_number(c.quality_points),c.source_file,c.source_sheet,str(c.source_excel_row)]])
             except CalculationReviewRequired as error:
                 totals.append([_excel_safe(reg),_excel_safe(degree),_excel_safe(term),scope,'','','','','',USER_CONFIRMED_POLICY.version,str(error)])
     for sheet in (totals,audit):
@@ -514,7 +585,7 @@ def write_draft_excel(dataset: ResultDataset, courses: list[CourseAttempt], path
         for raw,calculated in zip(dataset.courses,effective,strict=True):
             if (registration_key(raw.registration),program_key(raw.degree)) not in selected_ids:continue
             origin='Source' if raw.quality_points else 'Source grade-point rate' if raw.grade_point_rate and calculated.quality_points else 'Applied grade scale' if calculated.quality_points else 'Unresolved'
-            derivation.append([_excel_safe(v) for v in [raw.registration,raw.degree,raw.term,raw.course_code,raw.grade,raw.credits,raw.quality_points,raw.grade_point_rate or dataset.grade_scale.get(raw.grade.strip().upper(),''),calculated.quality_points,origin,raw.source_file,raw.source_sheet,str(raw.source_excel_row)]])
+            derivation.append([_excel_safe(v) for v in [raw.registration,raw.degree,raw.term,raw.course_code,raw.grade,raw.credits,_display_source_number(raw.quality_points),_clean_decimal_text(raw.grade_point_rate or dataset.grade_scale.get(raw.grade.strip().upper(),'')),_clean_decimal_text(calculated.quality_points),origin,raw.source_file,raw.source_sheet,str(raw.source_excel_row)]])
         derivation.freeze_panes='E2';derivation.auto_filter.ref=derivation.dimensions
         for column in derivation.columns:derivation.column_dimensions[column[0].column_letter].width=22
         scale=w.create_sheet('Applied Grade Scale')
