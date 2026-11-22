@@ -405,7 +405,7 @@ def test_app_title_uses_the_current_version():
     # even after v4.6.2 shipped, so the user could not tell which version
     # he was running. The title now comes from one APP_VERSION constant.
     from app import APP_VERSION
-    assert APP_VERSION == 'v4.6.8'
+    assert APP_VERSION == 'v4.6.9'
 
 
 def test_float_noise_does_not_flip_half_up_rounding(tmp_path):

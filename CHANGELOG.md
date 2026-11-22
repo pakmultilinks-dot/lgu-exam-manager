@@ -1,3 +1,7 @@
+# v4.6.9 (22 Nov 2026)
+
+- Launcher fix: the app no longer installs all packages again in every new version folder. The Python environment now lives in one shared place outside the version folder (LGU-Exam-Manager in the user profile), so packages are installed once and every later version reuses them and opens without installing again. The first run of v4.6.9 installs once into the shared place; after that, no more installs. If the shared environment is ever broken, the launcher removes it and creates it again by itself.
+
 # v4.6.8 (22 Nov 2026)
 
 - Excel Gazette: the Adj. GP and Adj. CH cells on repeated courses are now center-aligned, matching the other numeric columns (SEM, COURSE CODE, GRADE). Values were already correct since v4.6.7; only the alignment was left-aligned.
