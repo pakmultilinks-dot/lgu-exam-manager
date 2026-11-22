@@ -309,6 +309,59 @@ def test_excel_gazette_sheet_matches_official_layout(tmp_path):
             assert not (isinstance(cell.value, str) and '000000000' in cell.value), cell.coordinate
 
 
+def test_excel_gazette_sheet_prints_standing_in_comments(tmp_path):
+    # Regression (22 Nov 2026): the COMMENTS column was empty, but the
+    # official gazettes print G.A.ST (good standing) or PROBATION there.
+    # The cutoff is the probation_cgpa setting, else 2.00 CGPA.
+    import pandas as pd
+    frame = pd.DataFrame([
+        ["SPRING 2026", "Fa-2025/BSBCH/001", "STUDENT BETA", 0, "BCHM311", "Biochemistry I", 3, 87.0, "A", "BS BCH", 12.0, "S26"],
+        ["SPRING 2026", "Fa-2025/BSBCH/001", "STUDENT BETA", 0, "BCHM312", "Ecology I", 3, 89.0, "A", "BS BCH", 12.0, "S26"],
+        ["SPRING 2026", "Fa-2025/BSBCH/002", "STUDENT GAMMA", 0, "BCHM311", "Biochemistry I", 3, 20.0, "F", "BS BCH", 0.0, "S26"],
+        ["SPRING 2026", "Fa-2025/BSBCH/002", "STUDENT GAMMA", 0, "BCHM312", "Ecology I", 3, 15.0, "F", "BS BCH", 0.0, "S26"],
+    ], columns=["SEMESTER", "REGISTRATION NUMBERS", "STUDENT NAME", "AWARD ID", "COURSE CODE", "COURSE NAME", "CRH", "Total Marks", "Grade", "DEGREE TITLE", "GPs", "SHORT SEMESTER"])
+    source = tmp_path / 'standing.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    path = tmp_path / 'gazette.xlsx'
+    export_report('register', 'excel', ds, ds.courses, str(path),
+                  template_key='allied-health-biology', settings={'gazette_term': 'S26'})
+    from openpyxl import load_workbook
+    ws = load_workbook(path)['Gazette']
+    # BETA (CGPA 4.00) gets G.A.ST on the totals row; GAMMA (CGPA 0.00,
+    # all F) gets PROBATION on its totals row, one 10-row block later.
+    assert ws['Q8'].value == 'G.A.ST'
+    assert ws['Q18'].value == 'PROBATION'
+    # The READ FIRST sheet states the cutoff that was used.
+    first = load_workbook(path)['READ FIRST']
+    standing = [row for row in first.iter_rows(values_only=True) if row and row[0] == 'Academic standing']
+    assert standing and '2.00' in str(standing[0][1]) and 'G.A.ST' in str(standing[0][1])
+
+
+def test_pdf_gazette_prints_standing_in_comments(tmp_path):
+    # The PDF gazette prints the same standing in COMMENTS as the Excel.
+    frame = _two_term_df().iloc[[4, 5]].copy()
+    source = tmp_path / 'biology.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    path = tmp_path / 'gazette.pdf'
+    export_report('register', 'pdf', ds, ds.courses, str(path),
+                  template_key='allied-health-biology', settings={'gazette_term': 'S26'})
+    import fitz
+    text = ''.join(page.get_text() for page in fitz.open(path))
+    assert 'G.A.ST' in text
+
+
+def test_app_title_uses_the_current_version():
+    # Regression (22 Nov 2026): the window title was hardcoded to v4.5.2
+    # even after v4.6.2 shipped, so the user could not tell which version
+    # he was running. The title now comes from one APP_VERSION constant.
+    from app import APP_VERSION
+    assert APP_VERSION == 'v4.6.3'
+    from pathlib import Path
+    assert 'v4.5.2' not in Path('app.py').read_text(encoding='utf-8')
+
+
 @needs_display
 def test_dashboard_metric_click_stays_on_dashboard(dataset, monkeypatch):
     # Regression: the Dashboard metric cards used to carry a hidden

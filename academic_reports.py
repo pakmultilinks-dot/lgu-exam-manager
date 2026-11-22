@@ -1,7 +1,9 @@
 """Non-official DRAFT gazette exports for verified course-level imports.
 
-Uses explicit user-confirmed GPA rules with source provenance. Standing,
-merit and pass/fail decisions are not inferred.
+Uses explicit user-confirmed GPA rules with source provenance. Academic
+standing is printed in COMMENTS from the CGPA and the probation cutoff
+(operator's probation_cgpa setting, else 2.00); merit and pass/fail
+decisions are not inferred.
 """
 from __future__ import annotations
 
@@ -84,7 +86,8 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
     from openpyxl.utils import get_column_letter
     from academic_identity import program_key
     from calculation_policy import (AcademicIndex, CalculationReviewRequired,
-                                    calculation_attempts, display_ratio)
+                                    calculation_attempts, display_ratio,
+                                    standing_comment)
     from fee_register import selected_defaulters
     from gazette_layout import _cohort_short, _full_term, _plain_number, _profile, term_order
     from gazette_options import current_term, resolve_template_groups
@@ -208,6 +211,14 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
                             'sgpa': display_ratio(semester.exact_ratio),
                             'adj_gpa': display_ratio(cumulative.exact_ratio),
                         }
+                        # The official gazettes print the standing in
+                        # COMMENTS (G.A.ST, or PROBATION below the cutoff).
+                        # The cutoff is the operator's probation_cgpa
+                        # setting, else 2.00; it is stated on the READ
+                        # FIRST sheet so a different line is a settings
+                        # change, not a guess.
+                        cutoff = (settings or {}).get('probation_cgpa')
+                        comment = standing_comment(cumulative.exact_ratio, cutoff)
                     except CalculationReviewRequired as error:
                         totals = {'gp': 'REVIEW', 'ch': 'REVIEW', 'sgpa': 'REVIEW', 'adj_gpa': 'REVIEW'}
                         comment = f'GPA/CGPA review: {error}'
@@ -407,6 +418,7 @@ def write_draft_excel(dataset: ResultDataset, courses: list[CourseAttempt], path
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
+    from calculation_policy import display_ratio, standing_cutoff
     _guard(dataset, courses)
     w = Workbook()
     summary = w.active
@@ -419,7 +431,8 @@ def write_draft_excel(dataset: ResultDataset, courses: list[CourseAttempt], path
         ("Formula", "Total source grade points / total credit hours; highest points per credit repeat once"),
         ("Scope", "SGPA per term; CGPA imported history through term, including history outside display filter"),
         ("Display", "Two decimals, rounded half-up; exact numerator / denominator retained in calculation audit"),
-        ("Academic standing", "NOT DETERMINED"),
+        ("Academic standing",
+         f"G.A.ST at CGPA {display_ratio(standing_cutoff((settings or {}).get('probation_cgpa')))} or above; PROBATION below (cutoff from Settings, default 2.00)"),
         ("Grade scale source", dataset.grade_scale_reference),
     ]
     for line in desc:

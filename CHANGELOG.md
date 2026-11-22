@@ -1,3 +1,20 @@
+# v4.6.3
+
+COMMENTS now prints the academic standing, in the Excel Gazette sheet and
+in the PDF, like the official gazettes. Before, COMMENTS was empty, so the
+sheet did not look like the university's own sheet. Now a student with CGPA
+at or above the probation cutoff gets G.A.ST, and a student below it gets
+PROBATION. The cutoff is the operator's probation_cgpa setting in Settings;
+when it is empty the line is 2.00 CGPA, the usual university probation line,
+and the READ FIRST sheet states the cutoff that was used, so a different
+line is a settings change, not a guess. On the F20 file: BS BCH 11 G.A.ST
+and 1 PROBATION, BS Maths 12 G.A.ST and 3 PROBATION (the all-F student is
+PROBATION at 0.00). The window title also no longer says the old version:
+it was hardcoded to v4.5.2 even after v4.6.2 shipped. It now comes from one
+APP_VERSION constant, so it can never go stale again. Regression tests:
+standing in the Excel (G.A.ST and PROBATION), standing in the PDF, and the
+title version.
+
 # v4.6.2
 
 Excel Gazette sheet now matches the official LGU layout, the same table as

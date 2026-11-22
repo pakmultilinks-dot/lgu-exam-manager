@@ -124,10 +124,13 @@ def enable_trackpad_scroll(scrollable_frame):
     scrollable_frame.bind("<Configure>", lambda e: _bind_recursive(scrollable_frame), add="+")
 
 
+APP_VERSION = 'v4.6.3'
+
+
 class App(ctk.CTk):
     def __init__(self,restore_autosave=False):
         super().__init__()
-        self.title("LGU Exam Manager - Gazette v4.5.2")
+        self.title("LGU Exam Manager - Gazette " + APP_VERSION)
         self.geometry("1280x800")
         self.minsize(1100, 700)
 
@@ -203,7 +206,7 @@ class App(ctk.CTk):
             messagebox.showinfo("Operation in progress", "Wait for the current operation to finish.")
             return False
         self.job_busy = True
-        self.title("LGU Exam Manager - Gazette v4.5.2 - " + label)
+        self.title("LGU Exam Manager - Gazette " + APP_VERSION + " - " + label)
         def worker():
             started = time.perf_counter()
             try:
@@ -223,7 +226,7 @@ class App(ctk.CTk):
             while True:
                 label, done, result, error, elapsed = self._jobs.get_nowait()
                 self.job_busy = False
-                self.title("LGU Exam Manager - Gazette v4.5.2")
+                self.title("LGU Exam Manager - Gazette " + APP_VERSION)
                 if error is not None:
                     from user_errors import friendly_error
                     display_error=friendly_error(error)

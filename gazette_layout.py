@@ -328,7 +328,7 @@ def _header(pdf,page,number):
     pdf.set_text_color(0,0,0);_text(pdf,str(number),760,4,28,15,size=12)
 
 
-def _block(pdf,sr,identity,chunk,height,part,y,profile,calculations=None):
+def _block(pdf,sr,identity,chunk,height,part,y,profile,calculations=None,standing_cutoff=None):
     x=profile['edges'];row_h=profile['row_height'];cohort,degree,registration,name=identity
     identity_h=min(4*row_h,height)
     for i,value in enumerate((sr,degree,registration,name+(' (cont.)' if part else ''))):
@@ -390,7 +390,15 @@ def _block(pdf,sr,identity,chunk,height,part,y,profile,calculations=None):
             for cumulative,label in ((False,'GPA'),(True,'CGPA')):
                 try:calculations.summary(registration,degree,totals_courses[0].term,cumulative)
                 except CalculationReviewRequired:pending.append(label+' REVIEW')
-            value='; '.join(pending)
+            if pending:
+                value='; '.join(pending)
+            else:
+                # The official gazettes print the standing in COMMENTS
+                # (G.A.ST, or PROBATION below the cutoff). The cutoff is
+                # the operator's probation_cgpa setting, else 2.00.
+                from calculation_policy import standing_comment
+                cumulative=calculations.summary(registration,degree,totals_courses[0].term,True)
+                value=standing_comment(cumulative.exact_ratio, standing_cutoff)
         _cell(pdf,value,x[i],y,x[i+1]-x[i],height,size=6.5)
 
 
@@ -460,7 +468,7 @@ def write_gazette(dataset,rows,path,template_key='computer-science',settings=Non
                 y=page['profile']['body_top']
                 for sr,identity,chunk,height,part in page['blocks']:
                     pdf.start_section(identity[2]+(' (cont.)' if part else ''),level=0)
-                    _block(pdf,sr,identity,chunk,height,part,y,page['profile'],calculations);y+=height
+                    _block(pdf,sr,identity,chunk,height,part,y,page['profile'],calculations,(settings or {}).get('probation_cgpa'));y+=height
                 running+=1
             # The fee block closes its own section, with that section's
             # session in the header.

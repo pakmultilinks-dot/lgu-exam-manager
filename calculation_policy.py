@@ -35,6 +35,34 @@ def display_ratio(value):
     sign = '-' if value < 0 and whole else ''
     return f'{sign}{whole // 100}.{whole % 100:02d}'
 
+def standing_cutoff(cutoff_text=None):
+    """The CGPA line for academic standing, as an exact fraction.
+
+    The operator's probation_cgpa setting wins when it is a number. When
+    it is empty (the default), the line is 2.00, the usual university
+    probation line: CGPA at or above 2.00 is good standing, below it is
+    probation. The cutoff is always stated where the standing is shown,
+    so a different university line is a settings change, not a guess.
+    """
+    if cutoff_text is not None and str(cutoff_text).strip() != '':
+        try:
+            return Fraction(Decimal(str(cutoff_text).strip()))
+        except (InvalidOperation, ValueError, ArithmeticError):
+            pass
+    return Fraction(2, 1)
+
+
+def standing_comment(cgpa_exact_ratio, cutoff_text=None):
+    """The gazette COMMENTS standing for one student.
+
+    Returns 'G.A.ST' (good academic standing) when the CGPA is at or above
+    the probation cutoff, else 'PROBATION'. This is the value the official
+    LGU gazettes print in COMMENTS (G.A.ST for most students, PROBATION
+    for some); the app fills it instead of leaving COMMENTS empty.
+    """
+    return 'G.A.ST' if cgpa_exact_ratio >= standing_cutoff(cutoff_text) else 'PROBATION'
+
+
 class AcademicIndex:
     """Use full imported student history, never just filtered display rows."""
     def __init__(self, attempts):
