@@ -249,7 +249,7 @@ def _cover(pdf,rows,key,settings=None,publication_term=None):
     # gazettes ("SPRING SEMESTER 2024"). The old label mixed the full
     # history ("REGULAR & SUMMER 2025-2026" for a Fall 2026 gazette).
     bx,by,bw,bh=design['period_box']
-    pdf.set_fill_color(194,183,122);pdf.rect(bx,by,bw,bh,'F')
+    pdf.set_fill_color(200,189,135);pdf.rect(bx,by,bw,bh,'F')
     period=publication_term
     if period is None:
         terms=sorted({c.term for c in rows},key=term_order)
@@ -266,7 +266,7 @@ def _cover(pdf,rows,key,settings=None,publication_term=None):
     department=next(iter(headers)) if len(headers)==1 else key.replace('-',' ').upper()+' DEPARTMENT'
     department=settings.get('cover_department','').strip() or department
     dx,dy,dw,dh=design['department_box']
-    pdf.set_fill_color(0,60,42);pdf.rect(dx,dy,dw,dh,'F');pdf.set_text_color(193,164,65)
+    pdf.set_fill_color(0,58,34);pdf.rect(dx,dy,dw,dh,'F');pdf.set_text_color(193,164,65)
     _text(pdf,department,dx+2,dy+1,dw-4,dh-2,size=20,style='B',family='Title')
     title=settings.get('cover_title','').strip()
     if title:

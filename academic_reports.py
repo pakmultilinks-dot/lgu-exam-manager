@@ -137,21 +137,25 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
 
     navy = '17365D'
     title = worksheet.cell(1, 1, 'LAHORE GARRISON UNIVERSITY')
-    title.font = Font(name='Cambria', size=18, bold=True, color=navy)
+    title.font = Font(name='Times New Roman', size=24, bold=True, color=navy)
     title.alignment = Alignment(horizontal='center', vertical='center')
     worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=width)
+    worksheet.row_dimensions[1].height = 34
     worksheet.cell(2, 1, 'RESULT STATEMENT')
-    worksheet.cell(2, 1).font = Font(name='Cambria', size=15, bold=True)
+    worksheet.cell(2, 1).font = Font(name='Times New Roman', size=16)
     worksheet.cell(2, 1).alignment = Alignment(horizontal='center', vertical='center')
     worksheet.merge_cells(start_row=2, start_column=1, end_row=2, end_column=width)
+    worksheet.row_dimensions[2].height = 24
     worksheet.cell(3, 1, department_label)
-    worksheet.cell(3, 1).font = Font(name='Cambria', size=13, bold=True, color=navy)
+    worksheet.cell(3, 1).font = Font(name='Times New Roman', size=18, bold=True, italic=True, color=navy)
     worksheet.cell(3, 1).alignment = Alignment(horizontal='center', vertical='center')
     worksheet.merge_cells(start_row=3, start_column=1, end_row=3, end_column=width)
+    worksheet.row_dimensions[3].height = 28
     worksheet.cell(4, 1, session_line)
-    worksheet.cell(4, 1).font = Font(name='Arial', size=10)
+    worksheet.cell(4, 1).font = Font(name='Times New Roman', size=12, italic=True)
     worksheet.cell(4, 1).alignment = Alignment(horizontal='center', vertical='center')
     worksheet.merge_cells(start_row=4, start_column=1, end_row=4, end_column=width)
+    worksheet.row_dimensions[4].height = 20
 
     # Group header row (GP over its 3 columns, Chr over its 3) and label row.
     for start, end, label in ((9, 11, 'GP'), (12, 14, 'Chr')):

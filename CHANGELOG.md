@@ -1,3 +1,21 @@
+# v4.6.5
+
+Look fixes, both verified against the university's own files. (1) The PDF
+cover badge no longer looks like a sticker pasted on: the gold rectangle
+drawn over the badge used (194,183,122), a different gold from the ribbon
+artwork, so a lighter box showed around the FALL SEMESTER 2020 text. The
+overlay now uses the artwork's exact ribbon gold (200,189,135), sampled
+from the cover image, so the badge reads as one uniform ribbon like the
+official cover. The department band overlay is likewise corrected to the
+artwork's exact green (0,58,34). (2) The Excel title block now matches the
+university's own sheet: the title was Cambria 18 and the department line
+Cambria 13, both too small next to the official. The title is now Times New
+Roman 24 bold navy, RESULT STATEMENT Times New Roman 16, the department
+line Times New Roman 18 bold italic navy, and the session line Times New
+Roman 12 italic, with row heights set so nothing is cut off. The numbers
+are unchanged: all 12 Biology F20 students still match the source data
+exactly.
+
 # v4.6.4
 
 Logic and error fixes found by a full audit of the F20 file, all verified on
