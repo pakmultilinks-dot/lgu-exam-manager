@@ -50,6 +50,13 @@ def test_explicit_letter_scale_and_invalid_values():
     for credits, points in [('0','0'),('3','NaN'),('3',''),('-3','9')]:
         with pytest.raises(CalculationReviewRequired):
             calculate_academic_values([row('A',credits,points)],policy())
+    # v4.6.4 (B4): a lone non-GPA grade is skipped, so the student has no
+    # attempts and no GPA is produced (the review surfaces at the summary
+    # level as 'No attempts in calculation scope'). A non-GPA grade mixed
+    # with graded courses still computes from the graded ones.
     for grade in ('W','I','PASS',''):
-        with pytest.raises(CalculationReviewRequired):
-            calculate_academic_values([row('A','3','0',grade)],policy())
+        assert calculate_academic_values([row('A','3','0',grade)],policy()) == {}
+    # Mixed: the non-GPA attempt is skipped and the GPA comes from the
+    # graded course alone.
+    mixed = calculate_academic_values([row('A','3','12','A'), row('B','3','0','IP')], policy())
+    assert mixed['R1','BSCS'].total_grade_points == Decimal('12')

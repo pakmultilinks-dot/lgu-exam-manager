@@ -114,11 +114,38 @@ class AcademicSummary:
     decisions: tuple[RepeatDecision, ...]
     policy_version: str
 
+def _clean_number(value):
+    """Recover the intended 2-decimal value from binary float noise.
+
+    Source grade points come from the workbook as floats; a value the
+    university meant as 11.10 can arrive as 11.100000000000001, and
+    9.90 as 9.899999999999999. That noise is far below a real hundredth,
+    but it flips half-up rounding when the true ratio sits exactly on a
+    .xx5 boundary (32 SGPA/CGPA values in F20.xlsx printed 0.01 low).
+    Only a value within 1e-9 of a clean 2-decimal number is normalised;
+    a genuine 3-decimal value is left untouched. The source workbook is
+    never changed; only the in-memory value used for the ratio is cleaned.
+    """
+    from decimal import ROUND_HALF_UP, localcontext
+    if not value.is_finite():
+        return value
+    if value.as_tuple().exponent < -2:
+        try:
+            with localcontext() as context:
+                context.prec = max(28, len(value.as_tuple().digits) + 2)
+                clean = value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        except InvalidOperation:
+            return value
+        if abs(value - clean) < Decimal('0.000000001'):
+            return clean
+    return value
+
+
 def _values(attempt):
     if attempt.grade.strip().upper() in ('W', 'I', 'IP', 'P', 'PASS', 'R', ''):
         raise CalculationReviewRequired('Non-GPA or incomplete grade requires an explicit inclusion rule.')
     try:
-        credits, points = (Decimal(str(v).strip()) for v in (attempt.credits, attempt.quality_points))
+        credits, points = (_clean_number(Decimal(str(v).strip())) for v in (attempt.credits, attempt.quality_points))
     except InvalidOperation:
         raise CalculationReviewRequired(f'Missing or invalid credit hours / grade points for grade {attempt.grade.strip() or "(blank)"}. Supply numeric GP or an explicit matching scale rate.') from None
     if not all(v.is_finite() and v >= 0 for v in (credits, points)) or credits == 0:
@@ -148,6 +175,14 @@ def calculate_academic_values(attempts, policy=None):
     for attempt in attempts:
         if not attempt.registration.strip() or not attempt.course_code.strip():
             raise CalculationReviewRequired('Registration and course code are required.')
+        # A non-GPA grade (in progress, incomplete, withdrawn, pass, or
+        # blank) has no grade points and no credits to count, so it is
+        # skipped instead of blocking the student's whole GPA. One IP
+        # course used to poison the SGPA and every later CGPA (SARA
+        # FAIZA F25, SAWERA F24). A student with only non-GPA attempts
+        # still gets a review, via 'No attempts in calculation scope'.
+        if attempt.grade.strip().upper() in ('W', 'I', 'IP', 'P', 'PASS', 'R', ''):
+            continue
         key = (registration_key(attempt.registration), program_key(attempt.degree), attempt.course_code.strip().casefold())
         groups.setdefault(key, []).append(attempt)
     students = {}

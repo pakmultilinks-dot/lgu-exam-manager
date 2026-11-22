@@ -352,12 +352,170 @@ def test_pdf_gazette_prints_standing_in_comments(tmp_path):
     assert 'G.A.ST' in text
 
 
+def test_word_register_prints_standing_per_term(tmp_path):
+    # Regression (22 Nov 2026): the Word register showed SGPA/CGPA per
+    # term but no standing, while the PDF and Excel gazettes print
+    # G.A.ST / PROBATION. The Word per-term line now carries it too.
+    import pandas as pd
+    frame = pd.DataFrame([
+        ["SPRING 2026", "Fa-2025/BSBCH/001", "STUDENT BETA", 0, "BCHM311", "Biochemistry I", 3, 87.0, "A", "BS BCH", 12.0, "S26"],
+        ["SPRING 2026", "Fa-2025/BSBCH/001", "STUDENT BETA", 0, "BCHM312", "Ecology I", 3, 89.0, "A", "BS BCH", 12.0, "S26"],
+        ["SPRING 2026", "Fa-2025/BSBCH/002", "STUDENT GAMMA", 0, "BCHM311", "Biochemistry I", 3, 20.0, "F", "BS BCH", 0.0, "S26"],
+        ["SPRING 2026", "Fa-2025/BSBCH/002", "STUDENT GAMMA", 0, "BCHM312", "Ecology I", 3, 15.0, "F", "BS BCH", 0.0, "S26"],
+    ], columns=["SEMESTER", "REGISTRATION NUMBERS", "STUDENT NAME", "AWARD ID", "COURSE CODE", "COURSE NAME", "CRH", "Total Marks", "Grade", "DEGREE TITLE", "GPs", "SHORT SEMESTER"])
+    source = tmp_path / 'standing.docx.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    path = tmp_path / 'register.docx'
+    export_report('register', 'word', ds, ds.courses, str(path),
+                  template_key='allied-health-biology', settings={'gazette_term': 'S26'})
+    from docx import Document
+    text = '\n'.join(p.text for p in Document(path).paragraphs)
+    assert 'S26: SGPA 4.00 | CGPA 4.00 | G.A.ST' in text
+    assert 'S26: SGPA 0.00 | CGPA 0.00 | PROBATION' in text
+
+
 def test_app_title_uses_the_current_version():
     # Regression (22 Nov 2026): the window title was hardcoded to v4.5.2
     # even after v4.6.2 shipped, so the user could not tell which version
     # he was running. The title now comes from one APP_VERSION constant.
     from app import APP_VERSION
-    assert APP_VERSION == 'v4.6.3'
+    assert APP_VERSION == 'v4.6.4'
+
+
+def test_float_noise_does_not_flip_half_up_rounding(tmp_path):
+    # Regression v4.6.4 (B2): source grade points arrive as binary floats,
+    # so a value the university meant as 6.90 can read 6.8999999999999995.
+    # That noise flipped half-up rounding when the true ratio sat exactly
+    # on a .xx5 boundary: 32 SGPA/CGPA values in F20.xlsx printed 0.01
+    # low. Here the clean total is 16.35 over 6 credits (2.725), which
+    # must display 2.73, not 2.72.
+    import pandas as pd
+    frame = pd.DataFrame([
+        ["SPRING 2026", "Fa-2025/BSBCH/001", "STUDENT BETA", 0, "BCHM311", "Biochemistry I", 3, 69.0, "C+", "BS BCH", 6.8999999999999995, "S26"],
+        ["SPRING 2026", "Fa-2025/BSBCH/001", "STUDENT BETA", 0, "BCHM312", "Ecology I", 3, 94.5, "B", "BS BCH", 9.45, "S26"],
+    ], columns=["SEMESTER", "REGISTRATION NUMBERS", "STUDENT NAME", "AWARD ID", "COURSE CODE", "COURSE NAME", "CRH", "Total Marks", "Grade", "DEGREE TITLE", "GPs", "SHORT SEMESTER"])
+    source = tmp_path / 'float-noise.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    from calculation_policy import AcademicIndex, display_ratio
+    index = AcademicIndex(ds.courses)
+    summary = index.summary('Fa-2025/BSBCH/001', 'BS BCH', 'S26')
+    assert display_ratio(summary.exact_ratio) == '2.73'
+
+
+def test_excel_tgp_tch_are_cumulative_not_semester(tmp_path):
+    # Regression v4.6.4 (B1): the Excel T.GP / T.CH columns showed the
+    # semester totals, not the cumulative totals. ALPHA's S26 section must
+    # show GP 23.10 (S26 only) against T.GP 42.90 (F25 + S26), and CH 6
+    # against T.CH 13. The PDF already showed cumulative; the Excel must
+    # match it.
+    frame = _two_term_df().iloc[[0, 1, 2, 3]].copy()
+    source = tmp_path / 'two-term.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    path = tmp_path / 'gazette.xlsx'
+    export_report('register', 'excel', ds, ds.courses, str(path),
+                  template_key='computer-science', settings={'gazette_term': 'S26'})
+    from openpyxl import load_workbook
+    ws = load_workbook(path)['Gazette']
+    # ALPHA's S26 section: 2 courses, totals on the last course row (row 8).
+    assert ws['I8'].value == '23.10'
+    assert ws['K8'].value == '42.90'
+    assert ws['L8'].value == '6'
+    assert ws['N8'].value == '13'
+    assert ws['O8'].value == '3.85'
+    assert ws['P8'].value == '3.30'
+
+
+def test_excel_gazette_shows_only_the_publication_term(tmp_path):
+    # Regression v4.6.4 (B5/B6): the Excel Gazette sheet printed the
+    # student's full history (every term), and a Fall gazette also printed
+    # the Summer sections that belong to the Spring gazette. It must show
+    # only the publication term window, like the PDF: S26 here, never F25.
+    frame = _two_term_df().iloc[[0, 1, 2, 3]].copy()
+    source = tmp_path / 'two-term.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    path = tmp_path / 'gazette.xlsx'
+    export_report('register', 'excel', ds, ds.courses, str(path),
+                  template_key='computer-science', settings={'gazette_term': 'S26'})
+    from openpyxl import load_workbook
+    import re
+    ws = load_workbook(path)['Gazette']
+    # The SEM column also carries the header label and the fee-section
+    # header, so only count values that look like a term code (S26, SU26,
+    # F25). Those must be only S26: no F25 history, no other term.
+    terms = {ws.cell(row=r, column=5).value for r in range(7, ws.max_row + 1)}
+    terms = {t for t in terms if t and isinstance(t, str) and re.fullmatch(r'(S|SU|F)\d+', t.strip())}
+    assert terms == {'S26'}
+
+
+def test_ip_course_does_not_block_gpa(tmp_path):
+    # Regression v4.6.4 (B4): one in-progress course used to poison the
+    # student's whole SGPA and every later CGPA (SARA FAIZA F25, SAWERA
+    # F24). A non-GPA grade (IP, W, I, P, R, blank) is now skipped, so the
+    # GPA is computed from the graded courses.
+    import pandas as pd
+    frame = pd.DataFrame([
+        ["SPRING 2026", "Fa-2025/BSBCH/001", "STUDENT BETA", 0, "BCHM311", "Biochemistry I", 3, 87.0, "A", "BS BCH", 12.0, "S26"],
+        ["SPRING 2026", "Fa-2025/BSBCH/001", "STUDENT BETA", 0, "BCHM312", "Ecology I", 3, 89.0, "A", "BS BCH", 12.0, "S26"],
+        ["SPRING 2026", "Fa-2025/BSBCH/001", "STUDENT BETA", 0, "MATH383", "Mathematics III", "", 0, "IP", "BS BCH", 0, "S26"],
+    ], columns=["SEMESTER", "REGISTRATION NUMBERS", "STUDENT NAME", "AWARD ID", "COURSE CODE", "COURSE NAME", "CRH", "Total Marks", "Grade", "DEGREE TITLE", "GPs", "SHORT SEMESTER"])
+    source = tmp_path / 'ip.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    from calculation_policy import AcademicIndex, display_ratio
+    index = AcademicIndex(ds.courses)
+    summary = index.summary('Fa-2025/BSBCH/001', 'BS BCH', 'S26')
+    assert display_ratio(summary.exact_ratio) == '4.00'
+
+
+def test_adj_gp_matches_the_exact_attempt_not_the_first(tmp_path):
+    # Regression v4.6.4 (B3): the PDF Adj. GP matched a repeated course by
+    # (course code, term) and returned the first match's points for every
+    # row, so a retaken course showed the first attempt's points. The same
+    # course twice in S26 (A then B) must show 12.00 for the A row and
+    # 9.00 for the B row.
+    import pandas as pd
+    frame = pd.DataFrame([
+        ["SPRING 2026", "Fa-2025/BSBCH/001", "STUDENT BETA", 0, "BCHM311", "Biochemistry I", 3, 87.0, "A", "BS BCH", 12.0, "S26"],
+        ["SPRING 2026", "Fa-2025/BSBCH/001", "STUDENT BETA", 0, "BCHM311", "Biochemistry I", 3, 75.0, "B", "BS BCH", 9.0, "S26"],
+    ], columns=["SEMESTER", "REGISTRATION NUMBERS", "STUDENT NAME", "AWARD ID", "COURSE CODE", "COURSE NAME", "CRH", "Total Marks", "Grade", "DEGREE TITLE", "GPs", "SHORT SEMESTER"])
+    source = tmp_path / 'repeat.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    from calculation_policy import AcademicIndex, calculation_attempts
+    from gazette_layout import _adj_values
+    calculations = AcademicIndex(calculation_attempts(ds))
+    rows = sorted(ds.courses, key=lambda c: c.source_excel_row)
+    assert _adj_values(rows[0], 'regular', calculations, rows[0].registration, rows[0].degree)[0] == '12.00'
+    assert _adj_values(rows[1], 'regular', calculations, rows[1].registration, rows[1].degree)[0] == '9.00'
+
+
+def test_default_term_counts_spring_cycle_together(tmp_path):
+    # Regression v4.6.4 (R3): the default term counted raw term rows, so a
+    # Spring cycle could lose to a smaller Fall term once its Summer rows
+    # were split off. S26 has 2 rows and SU26 has 3 (cycle 5), F25 has 4,
+    # so the default must be S26, not F25.
+    import pandas as pd
+    frame = pd.DataFrame([
+        ["FALL 2025", "Fa-2025/BSCS/001", "STUDENT ALPHA", 0, "CS100", "Course One", 3, 74.5, "B", "BSCS", 9.0, "F25"],
+        ["FALL 2025", "Fa-2025/BSCS/001", "STUDENT ALPHA", 0, "CS101", "Course Two", 4, 55.0, "B-", "BSCS", 10.8, "F25"],
+        ["FALL 2025", "Fa-2025/BSCS/002", "STUDENT BETA", 0, "CS100", "Course One", 3, 74.5, "B", "BSCS", 9.0, "F25"],
+        ["FALL 2025", "Fa-2025/BSCS/002", "STUDENT BETA", 0, "CS101", "Course Two", 4, 55.0, "B-", "BSCS", 10.8, "F25"],
+        ["SPRING 2026", "Fa-2025/BSCS/001", "STUDENT ALPHA", 0, "CS102", "Course Three", 3, 90.0, "A", "BSCS", 12.0, "S26"],
+        ["SPRING 2026", "Fa-2025/BSCS/001", "STUDENT ALPHA", 0, "CS103", "Course Four", 3, 85.0, "A-", "BSCS", 11.1, "S26"],
+        ["SUMMER 2026", "Fa-2025/BSCS/001", "STUDENT ALPHA", 0, "CS104", "Course Five", 3, 80.0, "B+", "BSCS", 9.9, "SU26"],
+        ["SUMMER 2026", "Fa-2025/BSCS/001", "STUDENT ALPHA", 0, "CS105", "Course Six", 3, 80.0, "B+", "BSCS", 9.9, "SU26"],
+        ["SUMMER 2026", "Fa-2025/BSCS/001", "STUDENT ALPHA", 0, "CS106", "Course Seven", 3, 80.0, "B+", "BSCS", 9.9, "SU26"],
+    ], columns=["SEMESTER", "REGISTRATION NUMBERS", "STUDENT NAME", "AWARD ID", "COURSE CODE", "COURSE NAME", "CRH", "Total Marks", "Grade", "DEGREE TITLE", "GPs", "SHORT SEMESTER"])
+    source = tmp_path / 'cycle.xlsx'
+    frame.to_excel(source, index=False)
+    ds = load_course_workbook(source)
+    from gazette_options import current_term
+    assert current_term(ds, {}) == 'S26'
+
     from pathlib import Path
     assert 'v4.5.2' not in Path('app.py').read_text(encoding='utf-8')
 

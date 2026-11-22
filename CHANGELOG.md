@@ -1,3 +1,39 @@
+# v4.6.4
+
+Logic and error fixes found by a full audit of the F20 file, all verified on
+the real file in the app. (1) Grade points that arrive as binary floats
+(11.100000000000001 for 11.10, 9.899999999999999 for 9.90) no longer flip
+half-up rounding: 32 SGPA/CGPA values across the PDF, Excel and Word printed
+0.01 too low, for example BS BCH/003 S22 SGPA 2.72 instead of 2.73 and BS
+BT/026 F20 SGPA and CGPA 2.32 instead of 2.33. The intended 2-decimal value
+is now recovered from the float noise before the ratio is computed; the
+source workbook is never changed. (2) The Excel T.GP and T.CH columns now
+show the cumulative totals, not the semester totals. Before, a later term
+showed the semester totals twice: SARA FAIZA's S21 section read T.GP 50.10
+and T.CH 17 when the cumulative totals are 97.90 and 35. The PDF already
+showed cumulative; the Excel now matches it. (3) One in-progress (IP)
+course no longer poisons a student's whole SGPA and every later CGPA. SARA
+FAIZA's F25 and SAWERA's F24/F25 used to show REVIEW with no GPA at all.
+Non-GPA grades (IP, W, I, P, PASS, R, blank) are now skipped, so the GPA is
+computed from the graded courses; a student with only non-GPA attempts
+still gets a review. (4) The Excel Gazette sheet now shows only the
+publication term window, like the PDF. Before, an S25 Excel printed the
+student's full history (572 rows for S25 Maths) and a Fall gazette printed
+the Summer sections that belong to the Spring gazette. Now an S25 Excel
+shows S25 and SU25 only, and an F21 gazette excludes SU21. (5) The CGPA
+probation cutoff can now be changed in Settings with a dataset loaded: the
+field was only on the legacy Settings panel, so the v4.6.3 instruction to
+change it in Settings could not be followed in the normal workflow. The
+legacy hint is fixed (empty now means 2.00 for gazettes) and the Probation
+List no longer blocks when the cutoff is empty. (6) The PDF Adj. GP now
+matches the exact source row for a repeated course, instead of returning
+the first (course, term) match for every row. (7) The default term now
+counts a Spring cycle (S plus its Summer) together, so a big Spring cycle
+cannot lose to a smaller Fall term. The Word register also prints the
+standing per term now (G.A.ST / PROBATION), which v4.6.3 added to the PDF
+and Excel only. Full suite: 173 passed, 1 skipped. Real-app verification
+on F20.xlsx: all checks passed.
+
 # v4.6.3
 
 COMMENTS now prints the academic standing, in the Excel Gazette sheet and

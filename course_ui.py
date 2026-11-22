@@ -57,6 +57,16 @@ class GazetteSettingsPanel(ctk.CTkScrollableFrame):
             entry=ctk.CTkEntry(self,width=580,textvariable=variable)
             entry.pack(anchor='w',padx=24,pady=3)
             self.cover_entries[key]=entry
+        # CGPA probation cutoff. This is the line the gazette prints in
+        # COMMENTS: at or above it is G.A.ST, below it is PROBATION. Blank
+        # means 2.00, the usual line. It was unreachable with a dataset
+        # loaded (the field lived only on the legacy Settings panel).
+        ctk.CTkLabel(self,text='CGPA probation cutoff (blank = 2.00)',font=('Arial',13,'bold')).pack(anchor='w',padx=24,pady=(12,0))
+        ctk.CTkLabel(self,text='CGPA at or above this line is G.A.ST, below it is PROBATION in the gazette. Blank uses 2.00.',wraplength=850,justify='left').pack(anchor='w',padx=24)
+        self.probation_var=ctk.StringVar(value=str(app.report_settings.get('probation_cgpa','')))
+        self.probation_var.trace_add('write',lambda *_args:app.report_settings.update({'probation_cgpa':self.probation_var.get().strip()}))
+        self.probation_entry=ctk.CTkEntry(self,width=180,textvariable=self.probation_var)
+        self.probation_entry.pack(anchor='w',padx=24,pady=3)
         self.detected=ctk.CTkLabel(self,text='',wraplength=850,justify='left')
         self.detected.pack(anchor='w',padx=24,pady=18)
         ctk.CTkLabel(self,text='Grade points for files with no numeric GP column',font=('Arial',14,'bold')).pack(anchor='w',padx=24,pady=(15,4))

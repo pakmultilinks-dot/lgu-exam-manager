@@ -41,14 +41,18 @@ def test_wrong_known_department_layout_cannot_be_published(tmp_path):
 
 def test_calculation_review_points_to_unresolved_historical_source_rows():
     from calculation_review import calculation_review_issues
-    past=attempt(term='F25',grade='IP',source_excel_row=19)
+    # v4.6.4 (B4): a non-GPA grade (IP, W, I, P, R, blank) in history is now
+    # skipped, so it no longer blocks the CGPA. The review still points to
+    # a genuinely unresolved historical row: here a grade with no rate and
+    # no points, so the CGPA cannot be computed.
+    past=attempt(term='F25',grade='X',quality_points='',source_excel_row=19)
     current=attempt(term='S26',course_code='NEW101',source_excel_row=24)
     ds=ResultDataset([past,current],[],[],'source.xlsx')
     issues=calculation_review_issues(ds,[current])
     assert len(issues)==1 and issues[0].code=='CGPA_CALCULATION_REVIEW'
-    assert issues[0].excel_row==19 and 'IP' in issues[0].description
+    assert issues[0].excel_row==19 and 'X' in issues[0].description
     ds.grade_scale={'A':'3.50'}
-    assert 'IP' in calculation_review_issues(ds,[current])[0].description
+    assert 'X' in calculation_review_issues(ds,[current])[0].description
 
 
 

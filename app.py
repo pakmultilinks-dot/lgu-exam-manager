@@ -124,7 +124,7 @@ def enable_trackpad_scroll(scrollable_frame):
     scrollable_frame.bind("<Configure>", lambda e: _bind_recursive(scrollable_frame), add="+")
 
 
-APP_VERSION = 'v4.6.3'
+APP_VERSION = 'v4.6.4'
 
 
 class App(ctk.CTk):
@@ -1302,8 +1302,6 @@ class ReportsFrame(ctk.CTkFrame):
             return False, "Import data first."
         if key in ("failing_subjects", "subject_pass_pct") and not self.app.report_settings.get("passing_marks"):
             return False, "Needs policy: configured approved passing marks per subject."
-        if key == "probation" and not self.app.report_settings.get("probation_cgpa"):
-            return False, "Needs policy: configured approved probation cutoff."
         if req == "cgpa" and not has_cgpa:
             return False, "Needs a mapped grade column."
         if req == "passfail" and not (has_status or has_cgpa):
@@ -1512,7 +1510,7 @@ class SettingsFrame(ctk.CTkFrame):
              "Empty = no pass/fail judgment. Used by Failing Subjects Detail "
              "and Subject-wise Pass Percentage."),
             ("probation_cgpa", "CGPA probation cutoff (optional)",
-             "Empty = no probation judgment. Used by Academic Probation List."),
+             "Empty = 2.00 for gazettes (G.A.ST / PROBATION). The Probation List shows the CGPA ranking with no judgment when empty."),
         ]
         for key, label, hint in fields:
             block = ctk.CTkFrame(form, fg_color="transparent")

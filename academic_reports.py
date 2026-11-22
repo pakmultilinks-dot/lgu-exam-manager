@@ -89,7 +89,7 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
                                     calculation_attempts, display_ratio,
                                     standing_comment)
     from fee_register import selected_defaulters
-    from gazette_layout import _cohort_short, _full_term, _plain_number, _profile, term_order
+    from gazette_layout import _cohort_short, _full_term, _plain_number, _profile, _window, term_order
     from gazette_options import current_term, resolve_template_groups
     from semester_reports import roll_order
 
@@ -188,8 +188,19 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
             for course in cohort_rows:
                 reg_groups[registration_key(course.registration)].append(course)
             start_index = len(gazette_rows)
+            # The gazette is for one publication term only, like the PDF:
+            # a student's full history is not printed here. Summer folds
+            # into its Spring (SUyy -> Syy), so an F21 gazette excludes
+            # the SU21 courses that belong to S21, and an S25 gazette
+            # shows S25 + SU25 only. Students with no course in the
+            # window do not appear in this gazette at all.
+            available_terms = {c.term.upper() for c in cohort_rows}
+            publication_window = _window(term, available_terms)
             for registration_id, attempts in sorted(
                     reg_groups.items(), key=lambda item: roll_order(item[1][0].registration)):
+                attempts = [c for c in attempts if _window(c.term, available_terms) == publication_window]
+                if not attempts:
+                    continue
                 serial += 1
                 student_name = attempts[0].name
                 registration = attempts[0].registration
@@ -208,6 +219,8 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
                         totals = {
                             'gp': display_ratio(Fraction(semester.total_grade_points)),
                             'ch': _plain_number(semester.total_credit_hours),
+                            'tgp': display_ratio(Fraction(cumulative.total_grade_points)),
+                            'tch': _plain_number(cumulative.total_credit_hours),
                             'sgpa': display_ratio(semester.exact_ratio),
                             'adj_gpa': display_ratio(cumulative.exact_ratio),
                         }
@@ -220,7 +233,7 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
                         cutoff = (settings or {}).get('probation_cgpa')
                         comment = standing_comment(cumulative.exact_ratio, cutoff)
                     except CalculationReviewRequired as error:
-                        totals = {'gp': 'REVIEW', 'ch': 'REVIEW', 'sgpa': 'REVIEW', 'adj_gpa': 'REVIEW'}
+                        totals = {'gp': 'REVIEW', 'ch': 'REVIEW', 'tgp': 'REVIEW', 'tch': 'REVIEW', 'sgpa': 'REVIEW', 'adj_gpa': 'REVIEW'}
                         comment = f'GPA/CGPA review: {error}'
                     for course_index, course in enumerate(term_courses):
                         values = [''] * width
@@ -235,9 +248,9 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
                         values[7] = course.grade
                         if course_index == len(term_courses) - 1 and totals is not None:
                             values[8] = totals['gp']
-                            values[10] = totals['gp']
+                            values[10] = totals['tgp']
                             values[11] = totals['ch']
-                            values[13] = totals['ch']
+                            values[13] = totals['tch']
                             values[14] = totals['sgpa']
                             values[15] = totals['adj_gpa']
                             values[16] = comment
@@ -370,7 +383,7 @@ def write_draft_word(dataset: ResultDataset, courses: list[CourseAttempt], path:
     doc.add_heading("RESULT REGISTER", level=2)
     doc.add_paragraph(f"Source: {dataset.source_filename}")
     doc.add_paragraph(f"Students: {student_count(courses)} | Course attempts: {len(courses)}")
-    from calculation_policy import AcademicIndex,display_ratio,CalculationReviewRequired
+    from calculation_policy import AcademicIndex,display_ratio,CalculationReviewRequired,standing_comment
     calculations=AcademicIndex(calculation_attempts(dataset))
     from fee_register import selected_defaulters
     publication_term=None
@@ -398,7 +411,7 @@ def write_draft_word(dataset: ResultDataset, courses: list[CourseAttempt], path:
             try:
                 semester=calculations.summary(reg,degree,term)
                 cumulative=calculations.summary(reg,degree,term,True)
-                doc.add_paragraph(f'{term}: SGPA {display_ratio(semester.exact_ratio)} | CGPA {display_ratio(cumulative.exact_ratio)}')
+                doc.add_paragraph(f'{term}: SGPA {display_ratio(semester.exact_ratio)} | CGPA {display_ratio(cumulative.exact_ratio)} | {standing_comment(cumulative.exact_ratio, (settings or {}).get("probation_cgpa"))}')
             except CalculationReviewRequired as error:
                 doc.add_paragraph(f'{term}: REVIEW - {error}')
     doc.add_page_break()

@@ -147,12 +147,30 @@ def _adj_values(course,section,calculations,registration,degree):
         from calculation_policy import display_ratio
         from decimal import Decimal,InvalidOperation
         from fractions import Fraction
-        for attempt in calculations.students.get((registration_key(registration),program_key(degree)),[]):
-            if attempt.course_code.strip().casefold()==course.course_code.strip().casefold() and attempt.term.upper()==course.term.upper():
-                try:points=Decimal(str(attempt.quality_points).strip())
-                except (InvalidOperation,AttributeError):return '-',credits
-                if not points.is_finite():return '-',credits
-                return display_ratio(Fraction(points)),credits
+        student_attempts=calculations.students.get((registration_key(registration),program_key(degree)),[])
+        # Match this exact source row first. A course repeated in one term
+        # can carry different points per attempt, and the old code returned
+        # the first (code, term) match for every row, so a later attempt
+        # showed the first attempt's points. Fall back to code+term+grade,
+        # then code+term, so a row never shows another attempt's points.
+        code=course.course_code.strip().casefold()
+        match=None
+        for attempt in student_attempts:
+            if attempt.source_excel_row==course.source_excel_row and attempt.course_code.strip().casefold()==code:
+                match=attempt;break
+        if match is None:
+            for attempt in student_attempts:
+                if attempt.course_code.strip().casefold()==code and attempt.term.upper()==course.term.upper() and attempt.grade.strip().upper()==course.grade.strip().upper():
+                    match=attempt;break
+        if match is None:
+            for attempt in student_attempts:
+                if attempt.course_code.strip().casefold()==code and attempt.term.upper()==course.term.upper():
+                    match=attempt;break
+        if match is not None:
+            try:points=Decimal(str(match.quality_points).strip())
+            except (InvalidOperation,AttributeError):return '-',credits
+            if not points.is_finite():return '-',credits
+            return display_ratio(Fraction(points)),credits
     return '-',credits
 
 

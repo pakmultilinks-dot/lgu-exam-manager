@@ -167,7 +167,16 @@ def current_term(dataset, settings):
     from collections import Counter
     from gazette_layout import term_order
     counts=Counter(course.term.upper() for course in dataset.courses)
-    return max(valid, key=lambda term: (counts.get(term.upper(), 0), term_order(term)))
+    # A Spring cycle is S plus its same-year Summer, so count them together;
+    # counting S alone could let a smaller Fall term beat a bigger Spring
+    # cycle that only looks small once its Summer rows are split off.
+    def cycle_count(term):
+        upper=term.upper()
+        count=counts.get(upper, 0)
+        if upper.startswith('S') and not upper.startswith('SU'):
+            count+=counts.get('SU'+upper[1:], 0)
+        return count
+    return max(valid, key=lambda term: (cycle_count(term), term_order(term)))
 
 
 def gazette_rows(dataset, rows, settings):
