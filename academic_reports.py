@@ -362,10 +362,11 @@ def _write_gazette_excel_sheet(workbook, dataset, courses, template_key, setting
         for c in range(1, width + 1):
             worksheet.cell(row=r, column=c).border = cell_border
 
-    # SEM, COURSE CODE and GRADE print centered, like the official sheet;
-    # the summary totals are centered by the block merge above.
+    # SEM, COURSE CODE, GRADE and the per-course Adj. GP and Adj. CH
+    # print centered, like the official sheet; the summary totals are
+    # centered by the block merge above.
     for r in range(7, result_end_row + 1):
-        for c in (5, 6, 8):
+        for c in (5, 6, 8, 10, 13):
             worksheet.cell(row=r, column=c).alignment = Alignment(
                 horizontal='center', vertical='center')
 

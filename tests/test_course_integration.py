@@ -405,7 +405,7 @@ def test_app_title_uses_the_current_version():
     # even after v4.6.2 shipped, so the user could not tell which version
     # he was running. The title now comes from one APP_VERSION constant.
     from app import APP_VERSION
-    assert APP_VERSION == 'v4.6.7'
+    assert APP_VERSION == 'v4.6.8'
 
 
 def test_float_noise_does_not_flip_half_up_rounding(tmp_path):
@@ -662,6 +662,11 @@ def test_excel_gazette_adj_matches_pdf_on_repeated_courses(tmp_path):
     # Adj. GP is col J, Adj. CH is col M.
     assert ws['J7'].value == '0.00' and ws['M7'].value == '3'
     assert ws['J8'].value in (None, '') and ws['M8'].value in (None, '')
+    # Regression (22 Nov 2026, v4.6.8): the Adj. GP and Adj. CH cells
+    # on repeated courses must be center-aligned like the other
+    # numeric columns.
+    assert ws['J7'].alignment.horizontal == 'center'
+    assert ws['M7'].alignment.horizontal == 'center'
 
 
 def test_tch_header_clears_column_right_border(tmp_path):

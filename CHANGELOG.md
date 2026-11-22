@@ -1,3 +1,8 @@
+# v4.6.8 (22 Nov 2026)
+
+- Excel Gazette: the Adj. GP and Adj. CH cells on repeated courses are now center-aligned, matching the other numeric columns (SEM, COURSE CODE, GRADE). Values were already correct since v4.6.7; only the alignment was left-aligned.
+- No .exe build: delivery still uses START_LGU_Exam_Manager.bat, not a standalone .exe. The LGU_Exam_Manager.spec file in the repo is not used for delivery, so there is no .exe to rebuild.
+
 # v4.6.7
 
 Three fixes, each verified on the real F20 file by rendering the actual
