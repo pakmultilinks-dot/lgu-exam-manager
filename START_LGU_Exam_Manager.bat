@@ -8,7 +8,7 @@ title LGU Exam Manager - Setup and Start
 
 
 echo ============================================================
-echo  LGU Exam Manager - Gazette v4.6.9
+echo  LGU Exam Manager - Gazette v4.6.10
 echo ============================================================
 echo.
 echo  This window sets everything up by itself, then opens
